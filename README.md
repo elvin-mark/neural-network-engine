@@ -234,9 +234,9 @@ cargo test
    cargo run --release --example 09_cifar100_convnet
    ```
 
-10. **Vision Transformer (ViT) on 32x32 RGB CIFAR-10 (Patch Embedding + Multi-Head Attention)**:
+10. **Vision Transformer (ViT) on 32x32 RGB CIFAR-100 (Patch Embedding + Multi-Head Attention)**:
     ```bash
-    cargo run --release --example 10_cifar10_vit
+    cargo run --release --example 10_cifar100_vit
     ```
 
 ### Run Benchmarks

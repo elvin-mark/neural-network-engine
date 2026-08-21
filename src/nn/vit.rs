@@ -45,6 +45,21 @@ impl ViTConfig {
         }
     }
 
+    /// Pre-configured compact ViT for 32x32 CIFAR-100 classification (100 categories).
+    /// Uses 4x4 patches resulting in 64 spatial tokens ($8 \times 8$).
+    pub fn cifar100() -> Self {
+        Self {
+            image_size: 32,
+            patch_size: 4,
+            in_channels: 3,
+            num_classes: 100,
+            d_model: 64,
+            num_layers: 3,
+            num_heads: 4,
+            mlp_dim: 256,
+        }
+    }
+
     /// Pre-configured compact ViT for 28x28 MNIST classification.
     /// Uses 4x4 patches resulting in 49 spatial tokens ($7 \times 7$).
     pub fn mnist() -> Self {

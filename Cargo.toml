@@ -65,8 +65,8 @@ name = "09_cifar100_convnet"
 path = "examples/09_cifar100_convnet.rs"
 
 [[example]]
-name = "10_cifar10_vit"
-path = "examples/10_cifar10_vit.rs"
+name = "10_cifar100_vit"
+path = "examples/10_cifar100_vit.rs"
 
 
 

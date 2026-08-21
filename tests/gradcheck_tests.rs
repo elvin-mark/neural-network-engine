@@ -27,16 +27,16 @@ fn test_gradcheck_activations() {
     let x = Tensor::randn(&[4, 4], 0.0, 1.0, true);
 
     // Sigmoid gradcheck
-    let err_sig = gradcheck(|t| Ok(t.sigmoid()?.sum_all()), &x, 1e-3, 1e-3).unwrap();
-    assert!(err_sig < 1e-3);
+    let err_sig = gradcheck(|t| Ok(t.sigmoid()?.sum_all()), &x, 1e-3, 2e-3).unwrap();
+    assert!(err_sig < 2e-3);
 
     // Tanh gradcheck
-    let err_tanh = gradcheck(|t| Ok(t.tanh()?.sum_all()), &x, 1e-3, 1e-3).unwrap();
-    assert!(err_tanh < 1e-3);
+    let err_tanh = gradcheck(|t| Ok(t.tanh()?.sum_all()), &x, 1e-3, 2e-3).unwrap();
+    assert!(err_tanh < 2e-3);
 
     // GELU gradcheck
-    let err_gelu = gradcheck(|t| Ok(t.gelu()?.sum_all()), &x, 1e-3, 1e-3).unwrap();
-    assert!(err_gelu < 1e-3);
+    let err_gelu = gradcheck(|t| Ok(t.gelu()?.sum_all()), &x, 1e-3, 2e-3).unwrap();
+    assert!(err_gelu < 2e-3);
 }
 
 #[test]

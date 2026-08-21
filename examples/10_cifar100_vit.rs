@@ -1,18 +1,43 @@
-//! Example 10: Vision Transformer (ViT) on 32x32 RGB CIFAR-10 Image Dataset.
+//! Example 10: Vision Transformer (ViT) on 100-Class CIFAR-100 Image Dataset.
 
 use neural_network_engine::prelude::*;
 use std::collections::HashMap;
 
+/// Computes Top-K classification accuracy for 2D logits against true class labels.
+fn compute_top_k_accuracy(logits: &RawTensor, labels: &[usize], k: usize) -> f32 {
+    let contig = logits.to_contiguous();
+    let num_samples = labels.len();
+    let num_classes = contig.shape()[1];
+    let slice = contig.as_slice();
+
+    let mut correct = 0;
+    for i in 0..num_samples {
+        let actual = labels[i];
+        let row = &slice[i * num_classes..(i + 1) * num_classes];
+
+        // Rank top-k predictions
+        let mut indexed: Vec<(usize, f32)> = row.iter().copied().enumerate().collect();
+        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let in_top_k = indexed.iter().take(k).any(|&(cls, _)| cls == actual);
+        if in_top_k {
+            correct += 1;
+        }
+    }
+
+    (correct as f32) / (num_samples as f32) * 100.0
+}
+
 fn main() -> Result<()> {
     println!("============================================================");
-    println!("   10_cifar10_vit: Vision Transformer (ViT) on CIFAR-10    ");
+    println!("   10_cifar100_vit: Vision Transformer (ViT) on CIFAR-100   ");
     println!("============================================================\n");
 
     let max_samples = 600;
-    let (dataset_x, dataset_y) = load_cifar10_dataset(Some(max_samples));
+    let (dataset_x, dataset_y) = load_cifar100_dataset(Some(max_samples));
     let total_samples = dataset_y.len();
     println!(
-        "Loaded {} samples of 3x32x32 RGB CIFAR-10 images across 10 categories",
+        "Loaded {} samples of 3x32x32 RGB CIFAR-100 images across 100 categories",
         total_samples
     );
 
@@ -26,8 +51,8 @@ fn main() -> Result<()> {
     );
 
     // ViT Hyperparameters:
-    // Image: 32x32, Patches: 4x4 -> 64 tokens, d_model = 64, 3 layers, 4 attention heads
-    let config = ViTConfig::cifar10();
+    // Image: 32x32, Patches: 4x4 -> 64 tokens, d_model = 64, 3 layers, 4 attention heads, 100 classes
+    let config = ViTConfig::cifar100();
     println!("ViT Architecture Configuration:");
     println!(
         "  • Input: {}x{} RGB (3 channels)",
@@ -42,7 +67,8 @@ fn main() -> Result<()> {
     println!("  • Latent Dimension (d_model): {}", config.d_model);
     println!("  • Transformer Encoder Layers: {}", config.num_layers);
     println!("  • Self-Attention Heads: {}", config.num_heads);
-    println!("  • MLP Hidden Dimension: {}\n", config.mlp_dim);
+    println!("  • MLP Hidden Dimension: {}", config.mlp_dim);
+    println!("  • Target Classes: {}\n", config.num_classes);
 
     let model = VisionTransformer::new(config);
     let mut optimizer = Adam::new(model.parameters(), 0.002);
@@ -99,45 +125,31 @@ fn main() -> Result<()> {
         let avg_loss = total_loss / (train_len as f32);
         let train_acc = (train_correct as f32) / (train_len as f32) * 100.0;
         let test_acc = (test_correct as f32) / (test_len as f32) * 100.0;
+        let top5_acc = compute_top_k_accuracy(&test_logits.data(), &test_y, 5);
 
         if epoch % 3 == 0 || epoch == 1 || epoch == 15 {
             println!(
-                "Epoch {:2}/15 | Avg Loss: {:6.4} | Train Acc: {:5.1}% | Test Acc: {:5.1}%",
-                epoch, avg_loss, train_acc, test_acc
+                "Epoch {:2}/15 | Avg Loss: {:6.4} | Train Acc: {:5.1}% | Test Top-1: {:5.1}% | Test Top-5: {:5.1}%",
+                epoch, avg_loss, train_acc, test_acc, top5_acc
             );
         }
     }
 
-    // Final evaluation & sample predictions
+    // Final Top-1 and Top-5 evaluation
     let test_x_tensor = Tensor::new(test_x.clone(), false);
     let test_logits = model.forward(&test_x_tensor)?;
-    let test_probs = test_logits.softmax(1)?;
-    let test_preds = test_logits.data().argmax(1)?;
+    let final_top1 = compute_top_k_accuracy(&test_logits.data(), &test_y, 1);
+    let final_top5 = compute_top_k_accuracy(&test_logits.data(), &test_y, 5);
 
     println!("\n------------------------------------------------------------");
-    println!("          Sample Test Predictions (Vision Transformer)      ");
-    println!("------------------------------------------------------------\n");
-
-    let num_show = 6.min(test_len);
-    for i in 0..num_show {
-        let actual_idx = test_y[i];
-        let pred_idx = test_preds[i];
-        let conf = test_probs.data().get(&[i, pred_idx]) * 100.0;
-
-        let status = if actual_idx == pred_idx { "✓" } else { "✗" };
-        println!(
-            "Sample {:2}: Actual = {:12} | Predicted = {:12} ({:5.1}% conf) [{}]",
-            i + 1,
-            CIFAR10_CLASSES[actual_idx],
-            CIFAR10_CLASSES[pred_idx],
-            conf,
-            status
-        );
-    }
+    println!("          Final CIFAR-100 Test Performance (ViT)            ");
+    println!("------------------------------------------------------------");
+    println!("Final Test Top-1 Accuracy: {:5.2}%", final_top1);
+    println!("Final Test Top-5 Accuracy: {:5.2}%", final_top5);
 
     // Save model weights to SafeTensors format
     let _ = std::fs::create_dir_all("target");
-    let save_path = "target/cifar10_vit_model.safetensors";
+    let save_path = "target/cifar100_vit_model.safetensors";
     let mut tensor_map = HashMap::new();
 
     tensor_map.insert(
@@ -194,7 +206,10 @@ fn main() -> Result<()> {
     }
 
     save_safetensors(&tensor_map, save_path)?;
-    println!("\nSaved trained ViT model weights to {}", save_path);
+    println!(
+        "\nSaved trained CIFAR-100 ViT model weights to {}",
+        save_path
+    );
 
     let loaded = load_safetensors(save_path)?;
     println!(
@@ -202,6 +217,6 @@ fn main() -> Result<()> {
         loaded.len()
     );
 
-    println!("\nVision Transformer training on CIFAR-10 completed successfully!");
+    println!("\nVision Transformer training on CIFAR-100 completed successfully!");
     Ok(())
 }
