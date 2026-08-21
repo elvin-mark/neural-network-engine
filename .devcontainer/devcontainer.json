@@ -1,0 +1,33 @@
+{
+  "name": "Rust Neural Network Engine",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "vadimcn.vscode-lldb",
+        "tamasfe.even-better-toml",
+        "serayuzgur.crates",
+        "usernamehw.errorlens"
+      ],
+      "settings": {
+        "rust-analyzer.check.command": "clippy",
+        "rust-analyzer.check.allTargets": true,
+        "rust-analyzer.cargo.allFeatures": true,
+        "rust-analyzer.diagnostics.enable": false,
+        "rust-analyzer.diagnostics.disabled": [
+          "type-mismatch"
+        ],
+        "editor.formatOnSave": true,
+        "[rust]": {
+          "editor.defaultFormatter": "rust-lang.rust-analyzer"
+        },
+        "lldb.executable": "/usr/bin/lldb"
+      }
+    }
+  },
+  "postCreateCommand": "cargo check --all-targets",
+  "remoteUser": "vscode"
+}
