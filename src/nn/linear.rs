@@ -19,6 +19,11 @@ impl Linear {
         Self::with_bias(in_features, out_features, true)
     }
 
+    /// Creates a new Linear layer without bias (common in modern LLMs like LLaMA).
+    pub fn without_bias(in_features: usize, out_features: usize) -> Self {
+        Self::with_bias(in_features, out_features, false)
+    }
+
     /// Creates a new Linear layer with optional bias.
     pub fn with_bias(in_features: usize, out_features: usize, has_bias: bool) -> Self {
         let weight = Tensor::kaiming_uniform(&[out_features, in_features], in_features, true);

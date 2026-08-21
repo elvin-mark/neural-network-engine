@@ -196,6 +196,11 @@ cargo test
    cargo run --release --example 04_transformer_lm
    ```
 
+5. **LLaMA 2 with Grouped-Query Attention (GQA), RoPE, RMSNorm & SwiGLU**:
+   ```bash
+   cargo run --release --example 05_llama2_gqa
+   ```
+
 ### Run Benchmarks
 ```bash
 cargo bench

@@ -36,4 +36,9 @@ path = "examples/03_character_lm.rs"
 name = "04_transformer_lm"
 path = "examples/04_transformer_lm.rs"
 
+[[example]]
+name = "05_llama2_gqa"
+path = "examples/05_llama2_gqa.rs"
+
+
 

@@ -586,6 +586,27 @@ impl Tensor {
         })
     }
 
+    /// Square root elementwise.
+    pub fn sqrt(&self) -> Result<Tensor> {
+        let a_data = self.data();
+        let out_data = a_data.sqrt()?;
+
+        if !is_grad_enabled() || !self.requires_grad() {
+            return Ok(Tensor::new(out_data, false));
+        }
+
+        let saved_out = out_data.clone();
+        let backward_fn: BackwardFn = Arc::new(move |grad| {
+            let two_out = saved_out.mul_scalar(2.0).unwrap();
+            let d = grad.div(&two_out).unwrap();
+            vec![Some(d)]
+        });
+
+        Ok(Tensor {
+            inner: TensorInner::with_parents(out_data, vec![self.inner.clone()], backward_fn),
+        })
+    }
+
     /// Power function with scalar exponent.
     pub fn powf(&self, exp: f32) -> Result<Tensor> {
         let a_data = self.data();
@@ -715,6 +736,29 @@ impl Tensor {
         let backward_fn: BackwardFn = Arc::new(move |grad| {
             let mask = a_data.unary_op(|x| if x > 0.0 { 1.0 } else { negative_slope });
             let d = grad.mul(&mask).unwrap();
+            vec![Some(d)]
+        });
+
+        Ok(Tensor {
+            inner: TensorInner::with_parents(out_data, vec![self.inner.clone()], backward_fn),
+        })
+    }
+
+    /// Sigmoid Linear Unit (SiLU / Swish): x * sigmoid(x).
+    pub fn silu(&self) -> Result<Tensor> {
+        let a_data = self.data();
+        let out_data = a_data.silu()?;
+
+        if !is_grad_enabled() || !self.requires_grad() {
+            return Ok(Tensor::new(out_data, false));
+        }
+
+        let backward_fn: BackwardFn = Arc::new(move |grad| {
+            let d_silu = a_data.unary_op(|x| {
+                let sig = 1.0 / (1.0 + (-x).exp());
+                sig * (1.0 + x * (1.0 - sig))
+            });
+            let d = grad.mul(&d_silu).unwrap();
             vec![Some(d)]
         });
 
@@ -895,6 +939,82 @@ impl Tensor {
 
         Ok(Tensor {
             inner: TensorInner::with_parents(out_data, vec![self.inner.clone()], backward_fn),
+        })
+    }
+
+    /// Insert a dimension of size 1 at the specified axis.
+    pub fn unsqueeze(&self, axis: usize) -> Result<Tensor> {
+        let a_data = self.data();
+        let orig_shape = a_data.shape().to_vec();
+        let out_data = a_data.unsqueeze(axis)?;
+
+        if !is_grad_enabled() || !self.requires_grad() {
+            return Ok(Tensor::new(out_data, false));
+        }
+
+        let backward_fn: BackwardFn = Arc::new(move |grad| {
+            let d = grad.reshape(&orig_shape).unwrap();
+            vec![Some(d)]
+        });
+
+        Ok(Tensor {
+            inner: TensorInner::with_parents(out_data, vec![self.inner.clone()], backward_fn),
+        })
+    }
+
+    /// Remove a dimension of size 1 at the specified axis.
+    pub fn squeeze(&self, axis: usize) -> Result<Tensor> {
+        let a_data = self.data();
+        let orig_shape = a_data.shape().to_vec();
+        let out_data = a_data.squeeze(Some(axis))?;
+
+        if !is_grad_enabled() || !self.requires_grad() {
+            return Ok(Tensor::new(out_data, false));
+        }
+
+        let backward_fn: BackwardFn = Arc::new(move |grad| {
+            let d = grad.reshape(&orig_shape).unwrap();
+            vec![Some(d)]
+        });
+
+        Ok(Tensor {
+            inner: TensorInner::with_parents(out_data, vec![self.inner.clone()], backward_fn),
+        })
+    }
+
+    /// Concatenates a slice of tensors along an axis with full autograd tracking.
+    pub fn cat(tensors: &[&Tensor], axis: usize) -> Result<Tensor> {
+        let raw_tensors: Vec<RawTensor> = tensors.iter().map(|t| t.data()).collect();
+        let raw_refs: Vec<&RawTensor> = raw_tensors.iter().collect();
+        let out_data = RawTensor::cat(&raw_refs, axis)?;
+
+        let has_grad = is_grad_enabled() && tensors.iter().any(|t| t.requires_grad());
+        if !has_grad {
+            return Ok(Tensor::new(out_data, false));
+        }
+
+        let parents: Vec<Arc<TensorInner>> = tensors.iter().map(|t| t.inner.clone()).collect();
+        let reqs: Vec<bool> = tensors.iter().map(|t| t.requires_grad()).collect();
+        let slice_lengths: Vec<usize> = tensors.iter().map(|t| t.shape()[axis]).collect();
+
+        let backward_fn: BackwardFn = Arc::new(move |grad| {
+            let mut grads = Vec::with_capacity(reqs.len());
+            let mut start = 0;
+            for (&req, &len) in reqs.iter().zip(slice_lengths.iter()) {
+                let end = start + len;
+                if req {
+                    let d = grad.slice(axis, start, end).unwrap();
+                    grads.push(Some(d));
+                } else {
+                    grads.push(None);
+                }
+                start = end;
+            }
+            grads
+        });
+
+        Ok(Tensor {
+            inner: TensorInner::with_parents(out_data, parents, backward_fn),
         })
     }
 

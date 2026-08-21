@@ -49,6 +49,45 @@ impl Module for LayerNorm {
     }
 }
 
+/// Root Mean Square Normalization (RMSNorm as used in LLaMA / LLaMA 2):
+/// y = x / sqrt(mean(x^2) + eps) * gamma
+#[derive(Clone)]
+pub struct RMSNorm {
+    pub normalized_dim: usize,
+    pub weight: Tensor, // gamma
+    pub eps: f32,
+}
+
+impl RMSNorm {
+    pub fn new(normalized_dim: usize) -> Self {
+        Self::with_eps(normalized_dim, 1e-6)
+    }
+
+    pub fn with_eps(normalized_dim: usize, eps: f32) -> Self {
+        Self {
+            normalized_dim,
+            weight: Tensor::ones(&[normalized_dim], true),
+            eps,
+        }
+    }
+}
+
+impl Module for RMSNorm {
+    fn forward(&self, input: &Tensor) -> Result<Tensor> {
+        let last_axis = input.ndim() - 1;
+        let sq = input.powf(2.0)?;
+        let mean_sq = sq.mean(last_axis, true)?;
+        let mean_sq_eps = mean_sq.add_scalar(self.eps)?;
+        let rrms = mean_sq_eps.powf(0.5)?;
+        let norm = input.div(&rrms)?;
+        norm.mul(&self.weight)
+    }
+
+    fn parameters(&self) -> Vec<Tensor> {
+        vec![self.weight.clone()]
+    }
+}
+
 /// 1D Batch Normalization over a 2D batch [BatchSize, NumFeatures].
 #[derive(Clone)]
 pub struct BatchNorm1d {

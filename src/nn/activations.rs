@@ -30,6 +30,19 @@ impl Module for GELU {
     }
 }
 
+/// Sigmoid Linear Unit (SiLU / Swish) activation layer: x * sigmoid(x).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SiLU;
+
+impl Module for SiLU {
+    fn forward(&self, input: &Tensor) -> Result<Tensor> {
+        input.silu()
+    }
+    fn parameters(&self) -> Vec<Tensor> {
+        vec![]
+    }
+}
+
 /// Sigmoid activation layer.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Sigmoid;

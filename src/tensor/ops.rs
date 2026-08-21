@@ -173,6 +173,11 @@ impl RawTensor {
         Ok(self.unary_op(|a| if a > 0.0 { a } else { a * negative_slope }))
     }
 
+    /// Sigmoid Linear Unit (SiLU / Swish): x * sigmoid(x).
+    pub fn silu(&self) -> Result<RawTensor> {
+        Ok(self.unary_op(|x| x / (1.0 + (-x).exp())))
+    }
+
     // --- Slicing & Concatenation ---
 
     /// Slices the tensor along an axis from start to end (end-exclusive).
