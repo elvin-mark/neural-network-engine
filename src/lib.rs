@@ -32,7 +32,7 @@ pub mod prelude {
         GroupedQueryAttention, L1Loss, LayerNorm, LeakyReLU, Linear, Llama2Block, Llama2LM,
         LlamaConfig, MSELoss, MaxPool2d, Module, MultiHeadAttention, RMSNorm, ReLU,
         RotaryEmbedding, Sequential, SiLU, Sigmoid, Softmax, SwiGLU, Tanh, TransformerBlock,
-        TransformerLM, GELU,
+        TransformerLM, ViTConfig, VisionTransformer, GELU,
     };
     pub use crate::optim::{Adam, RMSprop, SGD};
     pub use crate::tensor::conv::Conv2dParams;

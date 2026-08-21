@@ -81,3 +81,43 @@ fn test_optimizers_step() {
     assert!((new_x.get(&[0]) - 1.6).abs() < 1e-4);
     assert!((new_x.get(&[1]) - (-2.4)).abs() < 1e-4);
 }
+
+#[test]
+fn test_vision_transformer_forward_backward() {
+    let config = ViTConfig {
+        image_size: 16,
+        patch_size: 4,
+        in_channels: 3,
+        num_classes: 5,
+        d_model: 16,
+        num_layers: 2,
+        num_heads: 2,
+        mlp_dim: 32,
+    };
+    let vit = VisionTransformer::new(config);
+
+    // Input batch: 2 images, 3 channels, 16x16
+    let x = Tensor::randn(&[2, 3, 16, 16], 0.0, 1.0, true);
+    let logits = vit.forward(&x).unwrap();
+
+    assert_eq!(logits.shape(), &[2, 5]);
+
+    // Backward pass
+    let loss = logits.sum_all();
+    loss.backward();
+
+    assert!(x.grad().is_some());
+    assert_eq!(x.grad().unwrap().shape(), &[2, 3, 16, 16]);
+    assert!(vit.pos_embed.grad().is_some());
+    assert_eq!(vit.pos_embed.grad().unwrap().shape(), &[1, 16, 16]);
+    assert!(vit.head.weight.grad().is_some());
+    assert_eq!(vit.head.weight.grad().unwrap().shape(), &[5, 16]);
+
+    // Invalid input rank
+    let rank3 = Tensor::randn(&[2, 3, 16], 0.0, 1.0, false);
+    assert!(vit.forward(&rank3).is_err());
+
+    // Invalid channels
+    let wrong_ch = Tensor::randn(&[2, 1, 16, 16], 0.0, 1.0, false);
+    assert!(vit.forward(&wrong_ch).is_err());
+}
