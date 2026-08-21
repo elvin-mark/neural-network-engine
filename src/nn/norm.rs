@@ -1,7 +1,7 @@
 //! Normalization layers (LayerNorm and BatchNorm1d).
 
 use crate::autograd::Tensor;
-use crate::error::Result;
+use crate::error::{EngineError, Result};
 use crate::nn::module::Module;
 use crate::tensor::RawTensor;
 
@@ -31,6 +31,20 @@ impl LayerNorm {
 
 impl Module for LayerNorm {
     fn forward(&self, input: &Tensor) -> Result<Tensor> {
+        let shape = input.shape();
+        if shape.is_empty() {
+            return Err(EngineError::InvalidArgument(
+                "LayerNorm cannot be applied to a 0-D scalar tensor".to_string(),
+            ));
+        }
+        let last_dim = *shape.last().unwrap();
+        if last_dim != self.normalized_dim {
+            return Err(EngineError::ShapeMismatch {
+                expected: vec![self.normalized_dim],
+                actual: vec![last_dim],
+            });
+        }
+
         let last_axis = input.ndim() - 1;
         let mean = input.mean(last_axis, true)?;
         let diff = input.sub(&mean)?;
@@ -74,6 +88,20 @@ impl RMSNorm {
 
 impl Module for RMSNorm {
     fn forward(&self, input: &Tensor) -> Result<Tensor> {
+        let shape = input.shape();
+        if shape.is_empty() {
+            return Err(EngineError::InvalidArgument(
+                "RMSNorm cannot be applied to a 0-D scalar tensor".to_string(),
+            ));
+        }
+        let last_dim = *shape.last().unwrap();
+        if last_dim != self.normalized_dim {
+            return Err(EngineError::ShapeMismatch {
+                expected: vec![self.normalized_dim],
+                actual: vec![last_dim],
+            });
+        }
+
         let last_axis = input.ndim() - 1;
         let sq = input.powf(2.0)?;
         let mean_sq = sq.mean(last_axis, true)?;
@@ -130,6 +158,21 @@ impl BatchNorm1d {
 
 impl Module for BatchNorm1d {
     fn forward(&self, input: &Tensor) -> Result<Tensor> {
+        let shape = input.shape();
+        if shape.len() != 2 {
+            return Err(EngineError::InvalidArgument(format!(
+                "BatchNorm1d expects 2D tensor [BatchSize, NumFeatures], got rank {} with shape {:?}",
+                shape.len(),
+                shape
+            )));
+        }
+        if shape[1] != self.num_features {
+            return Err(EngineError::ShapeMismatch {
+                expected: vec![self.num_features],
+                actual: vec![shape[1]],
+            });
+        }
+
         if self.is_training {
             let mean = input.mean(0, true)?;
             let diff = input.sub(&mean)?;

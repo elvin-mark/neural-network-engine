@@ -225,30 +225,59 @@ impl RawTensor {
         self.storage.get(self.offset)
     }
 
-    /// Gets an element by multi-dimensional coordinates.
-    pub fn get(&self, indices: &[usize]) -> f32 {
-        assert_eq!(
-            indices.len(),
-            self.shape.len(),
-            "Indices length {} does not match tensor ndim {}",
-            indices.len(),
-            self.shape.len()
-        );
+    /// Fallibly gets an element by multi-dimensional coordinates with full per-axis bounds checking.
+    pub fn try_get(&self, indices: &[usize]) -> Result<f32> {
+        if indices.len() != self.shape.len() {
+            return Err(EngineError::InvalidArgument(format!(
+                "Indices length {} does not match tensor rank {}",
+                indices.len(),
+                self.shape.len()
+            )));
+        }
+        for (&idx, &dim) in indices.iter().zip(self.shape.iter()) {
+            if idx >= dim {
+                return Err(EngineError::DimensionOutOfBounds {
+                    axis: idx,
+                    ndim: dim,
+                });
+            }
+        }
         let off = multi_index_to_offset(indices, &self.strides, self.offset);
-        self.storage.get(off)
+        Ok(self.storage.get(off))
     }
 
-    /// Sets an element by multi-dimensional coordinates.
-    pub fn set(&mut self, indices: &[usize], value: f32) {
-        assert_eq!(
-            indices.len(),
-            self.shape.len(),
-            "Indices length {} does not match tensor ndim {}",
-            indices.len(),
-            self.shape.len()
-        );
+    /// Gets an element by multi-dimensional coordinates. Panics if indices are out of bounds.
+    pub fn get(&self, indices: &[usize]) -> f32 {
+        self.try_get(indices)
+            .unwrap_or_else(|e| panic!("RawTensor::get failed: {}", e))
+    }
+
+    /// Fallibly sets an element by multi-dimensional coordinates with full per-axis bounds checking.
+    pub fn try_set(&mut self, indices: &[usize], value: f32) -> Result<()> {
+        if indices.len() != self.shape.len() {
+            return Err(EngineError::InvalidArgument(format!(
+                "Indices length {} does not match tensor rank {}",
+                indices.len(),
+                self.shape.len()
+            )));
+        }
+        for (&idx, &dim) in indices.iter().zip(self.shape.iter()) {
+            if idx >= dim {
+                return Err(EngineError::DimensionOutOfBounds {
+                    axis: idx,
+                    ndim: dim,
+                });
+            }
+        }
         let off = multi_index_to_offset(indices, &self.strides, self.offset);
         self.storage.set(off, value);
+        Ok(())
+    }
+
+    /// Sets an element by multi-dimensional coordinates. Panics if indices are out of bounds.
+    pub fn set(&mut self, indices: &[usize], value: f32) {
+        self.try_set(indices, value)
+            .unwrap_or_else(|e| panic!("RawTensor::set failed: {}", e));
     }
 
     /// Gets an element by logical flat index in [0, numel).

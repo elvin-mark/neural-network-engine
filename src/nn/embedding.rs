@@ -1,7 +1,5 @@
-//! Embedding lookup table layer.
-
 use crate::autograd::Tensor;
-use crate::error::Result;
+use crate::error::{EngineError, Result};
 use crate::nn::module::Module;
 
 /// Lookup table that stores embeddings of a fixed dictionary and size.
@@ -23,21 +21,46 @@ impl Embedding {
         }
     }
 
-    /// Looks up embeddings for a sequence of token indices.
+    /// Looks up embeddings for a sequence of token indices with bounds validation.
     pub fn forward_indices(&self, indices: &[usize]) -> Result<Tensor> {
+        for (pos, &idx) in indices.iter().enumerate() {
+            if idx >= self.num_embeddings {
+                return Err(EngineError::InvalidArgument(format!(
+                    "Token index {} at position {} is out of bounds for vocab size {}",
+                    idx, pos, self.num_embeddings
+                )));
+            }
+        }
         self.weight.embedding(indices)
     }
 }
 
 impl Module for Embedding {
     fn forward(&self, input: &Tensor) -> Result<Tensor> {
-        // Assume input contains integer indices as floats
-        let data = input.data();
-        let slice = data.as_slice();
-        let indices: Vec<usize> = slice.iter().map(|&x| x as usize).collect();
-        let out = self.forward_indices(&indices)?;
+        let contig = input.data().to_contiguous();
+        let slice = contig.as_slice();
+        let mut indices = Vec::with_capacity(slice.len());
 
-        // If input was multi-dimensional, reshape accordingly
+        for (pos, &x) in slice.iter().enumerate() {
+            if !x.is_finite() || x < 0.0 || x.fract() != 0.0 {
+                return Err(EngineError::InvalidArgument(format!(
+                    "Embedding forward expects non-negative integral token indices as floats, found {} at position {}",
+                    x, pos
+                )));
+            }
+            let idx = x as usize;
+            if idx >= self.num_embeddings {
+                return Err(EngineError::InvalidArgument(format!(
+                    "Token index {} at position {} is out of bounds for vocab size {}",
+                    idx, pos, self.num_embeddings
+                )));
+            }
+            indices.push(idx);
+        }
+
+        let out = self.weight.embedding(&indices)?;
+
+        // If input was multi-dimensional, reshape accordingly: [..., D]
         let mut target_shape = input.shape();
         target_shape.push(self.embedding_dim);
         out.reshape(&target_shape)

@@ -94,15 +94,38 @@ impl RotaryEmbedding {
     /// Applies RoPE rotation to 4D tensor `x` of shape `[B, H, T, D]`.
     pub fn apply(&self, x: &Tensor, start_pos: usize) -> Result<Tensor> {
         let shape = x.shape();
+        if shape.len() != 4 {
+            return Err(EngineError::InvalidArgument(format!(
+                "RoPE apply expects 4D tensor [Batch, Heads, SeqLen, HeadDim], got rank {} with shape {:?}",
+                shape.len(),
+                shape
+            )));
+        }
         let (_b, _h, t, d) = (shape[0], shape[1], shape[2], shape[3]);
-        assert_eq!(d, self.head_dim);
-        assert!(start_pos + t <= self.max_seq_len);
+        if d != self.head_dim {
+            return Err(EngineError::ShapeMismatch {
+                expected: vec![self.head_dim],
+                actual: vec![d],
+            });
+        }
+        let end_pos = start_pos.checked_add(t).ok_or_else(|| {
+            EngineError::InvalidArgument(format!(
+                "start_pos {} + seq_len {} overflowed usize",
+                start_pos, t
+            ))
+        })?;
+        if end_pos > self.max_seq_len {
+            return Err(EngineError::InvalidArgument(format!(
+                "Sequence range [{}, {}) exceeds RoPE max_seq_len {}",
+                start_pos, end_pos, self.max_seq_len
+            )));
+        }
 
         let half_d = d / 2;
 
         // 1. Slice cos and sin for current positions -> [1, 1, T, D]
-        let cos_slice = self.cos_cached.slice(2, start_pos, start_pos + t)?;
-        let sin_slice = self.sin_cached.slice(2, start_pos, start_pos + t)?;
+        let cos_slice = self.cos_cached.slice(2, start_pos, end_pos)?;
+        let sin_slice = self.sin_cached.slice(2, start_pos, end_pos)?;
 
         let cos = Tensor::new(cos_slice, false);
         let sin = Tensor::new(sin_slice, false);

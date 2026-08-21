@@ -201,3 +201,140 @@ fn test_dataloader_zero_batch_size_panics() {
     let dataset = TensorDataset::new(features, targets).unwrap();
     let _loader = DataLoader::new(&dataset, 0, false);
 }
+
+#[test]
+fn test_tensor_indexing_bounds_validation() {
+    let mut t = RawTensor::zeros(&[2, 3]);
+
+    // In-bounds access
+    assert_eq!(t.try_get(&[0, 2]).unwrap(), 0.0);
+    assert_eq!(t.try_get(&[1, 2]).unwrap(), 0.0);
+    assert!(t.try_set(&[1, 2], 42.0).is_ok());
+    assert_eq!(t.get(&[1, 2]), 42.0);
+
+    // Out-of-bounds access on axis 1 (index 3 on dimension 3)
+    assert!(t.try_get(&[0, 3]).is_err());
+    assert!(t.try_set(&[0, 3], 1.0).is_err());
+
+    // Out-of-bounds access on axis 0 (index 2 on dimension 2)
+    assert!(t.try_get(&[2, 0]).is_err());
+    assert!(t.try_set(&[2, 0], 1.0).is_err());
+
+    // Rank mismatch
+    assert!(t.try_get(&[0]).is_err());
+    assert!(t.try_get(&[0, 1, 2]).is_err());
+}
+
+#[test]
+fn test_rope_input_validation() {
+    let rope = RotaryEmbedding::new(16, 64, 10000.0);
+
+    // Valid 4D input [1, 2, 8, 16]
+    let valid_x = Tensor::zeros(&[1, 2, 8, 16], true);
+    assert!(rope.apply(&valid_x, 0).is_ok());
+
+    // Invalid rank: 3D [2, 8, 16]
+    let invalid_3d = Tensor::zeros(&[2, 8, 16], true);
+    assert!(rope.apply(&invalid_3d, 0).is_err());
+
+    // Invalid head dim: [1, 2, 8, 32] vs expected 16
+    let invalid_head_dim = Tensor::zeros(&[1, 2, 8, 32], true);
+    assert!(rope.apply(&invalid_head_dim, 0).is_err());
+
+    // Out of bounds sequence range: start_pos 60 + seq_len 8 = 68 > max_seq_len 64
+    assert!(rope.apply(&valid_x, 60).is_err());
+}
+
+#[test]
+fn test_normalization_contracts_and_rejections() {
+    // 1. LayerNorm
+    let ln = LayerNorm::new(4);
+    assert!(ln.forward(&Tensor::zeros(&[2, 4], false)).is_ok());
+    assert!(
+        ln.forward(&Tensor::zeros(&[2, 5], false)).is_err(),
+        "Wrong trailing dim"
+    );
+    assert!(
+        ln.forward(&Tensor::scalar(1.0, false)).is_err(),
+        "0D scalar input rejected"
+    );
+
+    // 2. RMSNorm
+    let rms = RMSNorm::new(4);
+    assert!(rms.forward(&Tensor::zeros(&[2, 4], false)).is_ok());
+    assert!(
+        rms.forward(&Tensor::zeros(&[2, 5], false)).is_err(),
+        "Wrong trailing dim"
+    );
+    assert!(
+        rms.forward(&Tensor::scalar(1.0, false)).is_err(),
+        "0D scalar input rejected"
+    );
+
+    // 3. BatchNorm1d
+    let bn = BatchNorm1d::new(4);
+    assert!(bn.forward(&Tensor::zeros(&[2, 4], false)).is_ok());
+    assert!(
+        bn.forward(&Tensor::zeros(&[2, 5], false)).is_err(),
+        "Wrong feature dim"
+    );
+    assert!(
+        bn.forward(&Tensor::zeros(&[2, 3, 4], false)).is_err(),
+        "Non-2D rank rejected"
+    );
+}
+
+#[test]
+fn test_embedding_token_validation() {
+    let emb = Embedding::new(10, 16);
+
+    // Valid indices
+    let valid_tokens = Tensor::new(RawTensor::from_slice(&[0.0, 1.0, 9.0], &[3]), false);
+    assert!(emb.forward(&valid_tokens).is_ok());
+
+    // Out-of-bounds token ID (10 >= vocab size 10)
+    let oob_tokens = Tensor::new(RawTensor::from_slice(&[0.0, 10.0], &[2]), false);
+    assert!(emb.forward(&oob_tokens).is_err());
+
+    // Negative token ID
+    let neg_tokens = Tensor::new(RawTensor::from_slice(&[-1.0, 2.0], &[2]), false);
+    assert!(emb.forward(&neg_tokens).is_err());
+
+    // Fractional / non-integral token ID
+    let frac_tokens = Tensor::new(RawTensor::from_slice(&[1.5, 2.0], &[2]), false);
+    assert!(emb.forward(&frac_tokens).is_err());
+
+    // NaN / Inf token ID
+    let nan_tokens = Tensor::new(RawTensor::from_slice(&[f32::NAN, 2.0], &[2]), false);
+    assert!(emb.forward(&nan_tokens).is_err());
+}
+
+#[test]
+fn test_dataset_and_probability_loss_edge_cases() {
+    // 1. train_test_split ratio validation
+    let features = RawTensor::zeros(&[10, 2]);
+    let labels = vec![0; 10];
+    let result_invalid_ratio = std::panic::catch_unwind(|| {
+        train_test_split(&features, &labels, 1.5, false);
+    });
+    assert!(result_invalid_ratio.is_err());
+
+    // 2. standardize zero-row tensor
+    let empty_tensor = RawTensor::zeros(&[0, 4]);
+    let (std_out, mean, std) = standardize(&empty_tensor);
+    assert_eq!(std_out.shape(), &[0, 4]);
+    assert_eq!(mean.len(), 4);
+    assert_eq!(std.len(), 4);
+
+    // 3. CrossEntropyLoss forward_with_probabilities shape contracts
+    let logits = Tensor::zeros(&[4, 5], true);
+    let valid_targets = Tensor::zeros(&[4, 5], false);
+    assert!(CrossEntropyLoss::forward_with_probabilities(&logits, &valid_targets).is_ok());
+
+    let mismatched_targets = Tensor::zeros(&[4, 3], false);
+    assert!(CrossEntropyLoss::forward_with_probabilities(&logits, &mismatched_targets).is_err());
+
+    let rank3_logits = Tensor::zeros(&[2, 2, 5], true);
+    let rank3_targets = Tensor::zeros(&[2, 2, 5], false);
+    assert!(CrossEntropyLoss::forward_with_probabilities(&rank3_logits, &rank3_targets).is_err());
+}

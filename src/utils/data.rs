@@ -579,7 +579,16 @@ pub fn train_test_split(
 ) -> (RawTensor, Vec<usize>, RawTensor, Vec<usize>) {
     let contig_features = features.to_contiguous();
     let n = labels.len();
-    assert_eq!(contig_features.shape()[0], n);
+    assert_eq!(
+        contig_features.shape()[0],
+        n,
+        "Features row count must match labels count"
+    );
+    assert!(
+        test_ratio > 0.0 && test_ratio < 1.0,
+        "test_ratio must be strictly between 0.0 and 1.0, got {}",
+        test_ratio
+    );
 
     let mut indices: Vec<usize> = (0..n).collect();
     if shuffle {
@@ -626,8 +635,11 @@ pub fn train_test_split(
 /// Standardizes features along each feature column (zero mean, unit variance).
 pub fn standardize(features: &RawTensor) -> (RawTensor, Vec<f32>, Vec<f32>) {
     let contig = features.to_contiguous();
-    let shape = contig.shape();
+    let shape = contig.shape().to_vec();
     assert_eq!(shape.len(), 2, "Standardize expects 2D [N, D] tensor");
+    if shape[0] == 0 {
+        return (contig, vec![0.0; shape[1]], vec![1.0; shape[1]]);
+    }
     let n = shape[0] as f32;
     let d = shape[1];
     let slice = contig.as_slice();

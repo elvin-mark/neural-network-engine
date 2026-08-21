@@ -69,6 +69,29 @@ impl CrossEntropyLoss {
 
     /// Computes Cross Entropy loss from raw logits `[N, C]` and target probabilities `[N, C]`.
     pub fn forward_with_probabilities(logits: &Tensor, targets: &Tensor) -> Result<Tensor> {
+        let l_shape = logits.shape();
+        let t_shape = targets.shape();
+        if l_shape.len() != 2 {
+            return Err(EngineError::InvalidArgument(format!(
+                "CrossEntropyLoss expects 2D logits [BatchSize, NumClasses], got rank {} with shape {:?}",
+                l_shape.len(),
+                l_shape
+            )));
+        }
+        if t_shape.len() != 2 {
+            return Err(EngineError::InvalidArgument(format!(
+                "CrossEntropyLoss expects 2D targets [BatchSize, NumClasses], got rank {} with shape {:?}",
+                t_shape.len(),
+                t_shape
+            )));
+        }
+        if l_shape != t_shape {
+            return Err(EngineError::ShapeMismatch {
+                expected: l_shape,
+                actual: t_shape,
+            });
+        }
+
         let log_probs = logits.log_softmax(1)?;
         let nll = log_probs.mul(targets)?.neg();
         let loss = nll.sum(1, false)?.mean_all();
