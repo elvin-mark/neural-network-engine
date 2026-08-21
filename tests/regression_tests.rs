@@ -338,3 +338,66 @@ fn test_dataset_and_probability_loss_edge_cases() {
     let rank3_targets = Tensor::zeros(&[2, 2, 5], false);
     assert!(CrossEntropyLoss::forward_with_probabilities(&rank3_logits, &rank3_targets).is_err());
 }
+
+#[test]
+fn test_mnist_and_cifar_binary_parsers() {
+    // 1. MNIST IDX binary parser test
+    let img_path = "target/test_mnist_images.idx";
+    let lbl_path = "target/test_mnist_labels.idx";
+
+    let mut img_bytes = Vec::new();
+    img_bytes.extend_from_slice(&2051u32.to_be_bytes()); // magic
+    img_bytes.extend_from_slice(&2u32.to_be_bytes()); // 2 images
+    img_bytes.extend_from_slice(&28u32.to_be_bytes()); // 28 rows
+    img_bytes.extend_from_slice(&28u32.to_be_bytes()); // 28 cols
+    img_bytes.extend(vec![255u8; 2 * 28 * 28]); // 2 images of all 255 (1.0)
+    File::create(img_path)
+        .unwrap()
+        .write_all(&img_bytes)
+        .unwrap();
+
+    let mut lbl_bytes = Vec::new();
+    lbl_bytes.extend_from_slice(&2049u32.to_be_bytes()); // magic
+    lbl_bytes.extend_from_slice(&2u32.to_be_bytes()); // 2 labels
+    lbl_bytes.extend_from_slice(&[3u8, 7u8]); // labels: 3 and 7
+    File::create(lbl_path)
+        .unwrap()
+        .write_all(&lbl_bytes)
+        .unwrap();
+
+    let (mnist_x, mnist_y) = load_mnist_from_idx(img_path, lbl_path, None).unwrap();
+    assert_eq!(mnist_x.shape(), &[2, 1, 28, 28]);
+    assert_eq!(mnist_y, vec![3, 7]);
+    assert_eq!(mnist_x.as_slice()[0], 1.0);
+
+    // 2. CIFAR-10 binary parser test (1 sample = 3073 bytes)
+    let cifar10_path = "target/test_cifar10.bin";
+    let mut c10_bytes = Vec::new();
+    c10_bytes.push(4u8); // label 4 ("deer")
+    c10_bytes.extend(vec![128u8; 3072]); // 3072 pixels
+    File::create(cifar10_path)
+        .unwrap()
+        .write_all(&c10_bytes)
+        .unwrap();
+
+    let (c10_x, c10_y) = load_cifar10_from_binary(cifar10_path, None).unwrap();
+    assert_eq!(c10_x.shape(), &[1, 3, 32, 32]);
+    assert_eq!(c10_y, vec![4]);
+    assert!((c10_x.as_slice()[0] - (128.0 / 255.0)).abs() < 1e-4);
+
+    // 3. CIFAR-100 binary parser test (1 sample = 3074 bytes)
+    let cifar100_path = "target/test_cifar100.bin";
+    let mut c100_bytes = Vec::new();
+    c100_bytes.push(11u8); // coarse label
+    c100_bytes.push(88u8); // fine label
+    c100_bytes.extend(vec![255u8; 3072]); // 3072 pixels
+    File::create(cifar100_path)
+        .unwrap()
+        .write_all(&c100_bytes)
+        .unwrap();
+
+    let (c100_x, c100_y) = load_cifar100_from_binary(cifar100_path, None).unwrap();
+    assert_eq!(c100_x.shape(), &[1, 3, 32, 32]);
+    assert_eq!(c100_y, vec![88]);
+    assert_eq!(c100_x.as_slice()[0], 1.0);
+}

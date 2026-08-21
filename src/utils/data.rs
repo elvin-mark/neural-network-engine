@@ -170,8 +170,22 @@ pub fn generate_xor_dataset(num_points: usize, noise: f32) -> (RawTensor, Vec<us
 }
 
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
+
+/// Canonical class names for CIFAR-10 (10 categories).
+pub const CIFAR10_CLASSES: [&str; 10] = [
+    "airplane",
+    "automobile",
+    "bird",
+    "cat",
+    "deer",
+    "dog",
+    "frog",
+    "horse",
+    "ship",
+    "truck",
+];
 
 /// Loads Fisher's Iris dataset from a CSV/data file.
 /// Format per line: `sepal_length,sepal_width,petal_length,petal_width,class_name`
@@ -570,6 +584,408 @@ pub fn generate_digits_dataset(num_samples: usize, noise: f32) -> (RawTensor, Ve
     )
 }
 
+/// Loads MNIST dataset from binary IDX format files (e.g. `train-images-idx3-ubyte` and `train-labels-idx1-ubyte`).
+pub fn load_mnist_from_idx<P1: AsRef<Path>, P2: AsRef<Path>>(
+    images_path: P1,
+    labels_path: P2,
+    max_samples: Option<usize>,
+) -> Result<(RawTensor, Vec<usize>)> {
+    let mut img_file = File::open(&images_path).map_err(|e| {
+        EngineError::SerializationError(format!(
+            "Failed to open MNIST images file '{}': {}",
+            images_path.as_ref().display(),
+            e
+        ))
+    })?;
+    let mut lbl_file = File::open(&labels_path).map_err(|e| {
+        EngineError::SerializationError(format!(
+            "Failed to open MNIST labels file '{}': {}",
+            labels_path.as_ref().display(),
+            e
+        ))
+    })?;
+
+    let mut img_header = [0u8; 16];
+    img_file.read_exact(&mut img_header).map_err(|e| {
+        EngineError::SerializationError(format!("Failed to read MNIST images header: {}", e))
+    })?;
+    let img_magic = u32::from_be_bytes(img_header[0..4].try_into().unwrap());
+    if img_magic != 2051 {
+        return Err(EngineError::SerializationError(format!(
+            "Invalid MNIST images magic number: expected 2051 (0x803), found {}",
+            img_magic
+        )));
+    }
+    let total_images = u32::from_be_bytes(img_header[4..8].try_into().unwrap()) as usize;
+    let rows = u32::from_be_bytes(img_header[8..12].try_into().unwrap()) as usize;
+    let cols = u32::from_be_bytes(img_header[12..16].try_into().unwrap()) as usize;
+    if rows != 28 || cols != 28 {
+        return Err(EngineError::SerializationError(format!(
+            "Invalid MNIST image dimensions: expected 28x28, found {}x{}",
+            rows, cols
+        )));
+    }
+
+    let mut lbl_header = [0u8; 8];
+    lbl_file.read_exact(&mut lbl_header).map_err(|e| {
+        EngineError::SerializationError(format!("Failed to read MNIST labels header: {}", e))
+    })?;
+    let lbl_magic = u32::from_be_bytes(lbl_header[0..4].try_into().unwrap());
+    if lbl_magic != 2049 {
+        return Err(EngineError::SerializationError(format!(
+            "Invalid MNIST labels magic number: expected 2049 (0x801), found {}",
+            lbl_magic
+        )));
+    }
+    let total_labels = u32::from_be_bytes(lbl_header[4..8].try_into().unwrap()) as usize;
+    if total_images != total_labels {
+        return Err(EngineError::SerializationError(format!(
+            "MNIST count mismatch: {} images vs {} labels",
+            total_images, total_labels
+        )));
+    }
+
+    let n = total_images.min(max_samples.unwrap_or(total_images));
+    let mut raw_pixels = vec![0u8; n * 28 * 28];
+    img_file.read_exact(&mut raw_pixels).map_err(|e| {
+        EngineError::SerializationError(format!("Failed to read MNIST pixels: {}", e))
+    })?;
+
+    let mut raw_labels = vec![0u8; n];
+    lbl_file.read_exact(&mut raw_labels).map_err(|e| {
+        EngineError::SerializationError(format!("Failed to read MNIST labels: {}", e))
+    })?;
+
+    let mut images = Vec::with_capacity(n * 28 * 28);
+    for &p in &raw_pixels {
+        images.push(p as f32 / 255.0);
+    }
+    let labels: Vec<usize> = raw_labels.into_iter().map(|l| l as usize).collect();
+
+    Ok((RawTensor::from_vec(images, vec![n, 1, 28, 28]), labels))
+}
+
+/// Generates a synthetic 28x28 handwritten digit dataset (0..9).
+/// Produces tensors formatted as `[num_samples, 1, 28, 28]` with integer labels `0..10`.
+pub fn generate_mnist_dataset(num_samples: usize, noise: f32) -> (RawTensor, Vec<usize>) {
+    let (digits_8x8, labels) = generate_digits_dataset(num_samples, noise * 0.5);
+    let slice_8x8 = digits_8x8.as_slice();
+
+    let mut images = vec![0.0f32; num_samples * 28 * 28];
+    let mut rng = rand::thread_rng();
+
+    for i in 0..num_samples {
+        let src_offset = i * 64;
+        let dst_offset = i * 28 * 28;
+
+        for r in 0..28 {
+            for c in 0..28 {
+                let dst_idx = dst_offset + r * 28 + c;
+
+                let r_f = (r as f32 - 4.0) / 2.5;
+                let c_f = (c as f32 - 4.0) / 2.5;
+
+                let pixel_val = if (0.0..7.0).contains(&r_f) && (0.0..7.0).contains(&c_f) {
+                    let r0 = r_f.floor() as usize;
+                    let c0 = c_f.floor() as usize;
+                    let r1 = (r0 + 1).min(7);
+                    let c1 = (c0 + 1).min(7);
+                    let dr = r_f - r0 as f32;
+                    let dc = c_f - c0 as f32;
+
+                    let p00 = slice_8x8[src_offset + r0 * 8 + c0];
+                    let p01 = slice_8x8[src_offset + r0 * 8 + c1];
+                    let p10 = slice_8x8[src_offset + r1 * 8 + c0];
+                    let p11 = slice_8x8[src_offset + r1 * 8 + c1];
+
+                    let top = p00 * (1.0 - dc) + p01 * dc;
+                    let bot = p10 * (1.0 - dc) + p11 * dc;
+                    top * (1.0 - dr) + bot * dr
+                } else {
+                    0.0
+                };
+
+                let sample_noise = (rng.gen::<f32>() - 0.5) * noise;
+                images[dst_idx] = (pixel_val + sample_noise).clamp(0.0, 1.0);
+            }
+        }
+    }
+
+    (
+        RawTensor::from_vec(images, vec![num_samples, 1, 28, 28]),
+        labels,
+    )
+}
+
+/// Loads MNIST dataset. Checks for downloaded IDX files in `data/`, otherwise falls back to synthetic dataset.
+pub fn load_mnist_dataset(max_samples: Option<usize>) -> (RawTensor, Vec<usize>) {
+    let candidates = [
+        (
+            "data/train-images-idx3-ubyte",
+            "data/train-labels-idx1-ubyte",
+        ),
+        (
+            "data/mnist/train-images-idx3-ubyte",
+            "data/mnist/train-labels-idx1-ubyte",
+        ),
+        (
+            "../data/train-images-idx3-ubyte",
+            "../data/train-labels-idx1-ubyte",
+        ),
+    ];
+
+    for (img_path, lbl_path) in &candidates {
+        if Path::new(img_path).exists() && Path::new(lbl_path).exists() {
+            if let Ok(res) = load_mnist_from_idx(img_path, lbl_path, max_samples) {
+                return res;
+            }
+        }
+    }
+
+    generate_mnist_dataset(max_samples.unwrap_or(1000), 0.05)
+}
+
+/// Loads CIFAR-10 dataset from binary batch file (e.g. `data_batch_1.bin` or `test_batch.bin`).
+/// Format per sample: 1 byte label (0..9) + 3072 bytes (1024 R, 1024 G, 1024 B).
+pub fn load_cifar10_from_binary<P: AsRef<Path>>(
+    path: P,
+    max_samples: Option<usize>,
+) -> Result<(RawTensor, Vec<usize>)> {
+    let mut file = File::open(&path).map_err(|e| {
+        EngineError::SerializationError(format!(
+            "Failed to open CIFAR-10 binary file '{}': {}",
+            path.as_ref().display(),
+            e
+        ))
+    })?;
+
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer).map_err(|e| {
+        EngineError::SerializationError(format!("Failed to read CIFAR-10 file: {}", e))
+    })?;
+
+    const RECORD_BYTES: usize = 1 + 3072;
+    let total_records = buffer.len() / RECORD_BYTES;
+    if total_records == 0 {
+        return Err(EngineError::SerializationError(format!(
+            "CIFAR-10 binary file '{}' is empty or invalid size ({})",
+            path.as_ref().display(),
+            buffer.len()
+        )));
+    }
+
+    let n = total_records.min(max_samples.unwrap_or(total_records));
+    let mut images = Vec::with_capacity(n * 3 * 32 * 32);
+    let mut labels = Vec::with_capacity(n);
+
+    for i in 0..n {
+        let offset = i * RECORD_BYTES;
+        let label = buffer[offset] as usize;
+        if label > 9 {
+            return Err(EngineError::SerializationError(format!(
+                "Invalid CIFAR-10 label {} at record {}",
+                label, i
+            )));
+        }
+        labels.push(label);
+
+        let pixel_bytes = &buffer[offset + 1..offset + RECORD_BYTES];
+        for &p in pixel_bytes {
+            images.push(p as f32 / 255.0);
+        }
+    }
+
+    Ok((RawTensor::from_vec(images, vec![n, 3, 32, 32]), labels))
+}
+
+/// Generates synthetic 3x32x32 color image dataset across 10 classes with distinct color geometries.
+pub fn generate_cifar10_dataset(num_samples: usize, noise: f32) -> (RawTensor, Vec<usize>) {
+    let mut images = vec![0.0f32; num_samples * 3 * 32 * 32];
+    let mut labels = Vec::with_capacity(num_samples);
+    let mut rng = rand::thread_rng();
+
+    const PALETTES: [[f32; 3]; 10] = [
+        [0.2, 0.6, 0.9], // 0: Airplane
+        [0.9, 0.2, 0.2], // 1: Automobile
+        [0.3, 0.8, 0.4], // 2: Bird
+        [0.9, 0.6, 0.2], // 3: Cat
+        [0.6, 0.4, 0.2], // 4: Deer
+        [0.8, 0.7, 0.5], // 5: Dog
+        [0.1, 0.9, 0.2], // 6: Frog
+        [0.4, 0.3, 0.2], // 7: Horse
+        [0.1, 0.3, 0.8], // 8: Ship
+        [0.7, 0.7, 0.8], // 9: Truck
+    ];
+
+    for i in 0..num_samples {
+        let class = i % 10;
+        labels.push(class);
+        let color = PALETTES[class];
+        let img_offset = i * 3 * 32 * 32;
+
+        let center_r = 16.0f32 + (rng.gen::<f32>() - 0.5) * 4.0;
+        let center_c = 16.0f32 + (rng.gen::<f32>() - 0.5) * 4.0;
+        let radius = 9.0f32 + (rng.gen::<f32>() - 0.5) * 2.0;
+
+        for r in 0..32 {
+            for c in 0..32 {
+                let dr = (r as f32) - center_r;
+                let dc = (c as f32) - center_c;
+                let dist_sq = dr * dr + dc * dc;
+                let is_foreground = dist_sq <= radius * radius;
+
+                for (ch, &channel_col) in color.iter().enumerate() {
+                    let base_val = if is_foreground {
+                        channel_col
+                    } else {
+                        channel_col * 0.25 + 0.1
+                    };
+                    let n_val = (rng.gen::<f32>() - 0.5) * 2.0 * noise;
+                    let pixel_idx = img_offset + ch * 1024 + r * 32 + c;
+                    images[pixel_idx] = (base_val + n_val).clamp(0.0, 1.0);
+                }
+            }
+        }
+    }
+
+    (
+        RawTensor::from_vec(images, vec![num_samples, 3, 32, 32]),
+        labels,
+    )
+}
+
+/// Loads CIFAR-10 dataset. Checks for downloaded binary batch in `data/`, otherwise falls back to synthetic dataset.
+pub fn load_cifar10_dataset(max_samples: Option<usize>) -> (RawTensor, Vec<usize>) {
+    let candidates = [
+        "data/cifar-10-batches-bin/data_batch_1.bin",
+        "data/data_batch_1.bin",
+        "data/cifar10/data_batch_1.bin",
+        "../data/cifar-10-batches-bin/data_batch_1.bin",
+    ];
+
+    for candidate in &candidates {
+        if Path::new(candidate).exists() {
+            if let Ok(res) = load_cifar10_from_binary(candidate, max_samples) {
+                return res;
+            }
+        }
+    }
+
+    generate_cifar10_dataset(max_samples.unwrap_or(800), 0.05)
+}
+
+/// Loads CIFAR-100 dataset from binary file (e.g. `train.bin` or `test.bin`).
+/// Format per sample: 1 byte coarse label (0..19) + 1 byte fine label (0..99) + 3072 bytes (1024 R, 1024 G, 1024 B).
+pub fn load_cifar100_from_binary<P: AsRef<Path>>(
+    path: P,
+    max_samples: Option<usize>,
+) -> Result<(RawTensor, Vec<usize>)> {
+    let mut file = File::open(&path).map_err(|e| {
+        EngineError::SerializationError(format!(
+            "Failed to open CIFAR-100 binary file '{}': {}",
+            path.as_ref().display(),
+            e
+        ))
+    })?;
+
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer).map_err(|e| {
+        EngineError::SerializationError(format!("Failed to read CIFAR-100 file: {}", e))
+    })?;
+
+    const RECORD_BYTES: usize = 2 + 3072;
+    let total_records = buffer.len() / RECORD_BYTES;
+    if total_records == 0 {
+        return Err(EngineError::SerializationError(format!(
+            "CIFAR-100 binary file '{}' is empty or invalid size ({})",
+            path.as_ref().display(),
+            buffer.len()
+        )));
+    }
+
+    let n = total_records.min(max_samples.unwrap_or(total_records));
+    let mut images = Vec::with_capacity(n * 3 * 32 * 32);
+    let mut labels = Vec::with_capacity(n);
+
+    for i in 0..n {
+        let offset = i * RECORD_BYTES;
+        let fine_label = buffer[offset + 1] as usize;
+        if fine_label > 99 {
+            return Err(EngineError::SerializationError(format!(
+                "Invalid CIFAR-100 fine label {} at record {}",
+                fine_label, i
+            )));
+        }
+        labels.push(fine_label);
+
+        let pixel_bytes = &buffer[offset + 2..offset + RECORD_BYTES];
+        for &p in pixel_bytes {
+            images.push(p as f32 / 255.0);
+        }
+    }
+
+    Ok((RawTensor::from_vec(images, vec![n, 3, 32, 32]), labels))
+}
+
+/// Generates synthetic 3x32x32 color image dataset across 100 fine categories.
+pub fn generate_cifar100_dataset(num_samples: usize, noise: f32) -> (RawTensor, Vec<usize>) {
+    let mut images = vec![0.0f32; num_samples * 3 * 32 * 32];
+    let mut labels = Vec::with_capacity(num_samples);
+    let mut rng = rand::thread_rng();
+
+    for i in 0..num_samples {
+        let class = i % 100;
+        labels.push(class);
+        let img_offset = i * 3 * 32 * 32;
+
+        let angle = (class as f32 / 100.0) * std::f32::consts::TAU;
+        let r_val = (angle.sin() * 0.5 + 0.5).clamp(0.0, 1.0);
+        let g_val = ((angle + 2.094).sin() * 0.5 + 0.5).clamp(0.0, 1.0);
+        let b_val = ((angle + 4.188).sin() * 0.5 + 0.5).clamp(0.0, 1.0);
+
+        for r in 0..32 {
+            for c in 0..32 {
+                let pattern = (((r * (class + 1)) % 16) as f32 / 16.0) * 0.5;
+                for ch in 0..3 {
+                    let base = match ch {
+                        0 => r_val + pattern,
+                        1 => g_val + pattern * 0.5,
+                        _ => b_val,
+                    };
+                    let n_val = (rng.gen::<f32>() - 0.5) * noise;
+                    let pixel_idx = img_offset + ch * 1024 + r * 32 + c;
+                    images[pixel_idx] = (base * 0.7 + 0.1 + n_val).clamp(0.0, 1.0);
+                }
+            }
+        }
+    }
+
+    (
+        RawTensor::from_vec(images, vec![num_samples, 3, 32, 32]),
+        labels,
+    )
+}
+
+/// Loads CIFAR-100 dataset. Checks for downloaded binary in `data/`, otherwise falls back to synthetic dataset.
+pub fn load_cifar100_dataset(max_samples: Option<usize>) -> (RawTensor, Vec<usize>) {
+    let candidates = [
+        "data/cifar-100-binary/train.bin",
+        "data/train.bin",
+        "data/cifar100/train.bin",
+        "../data/cifar-100-binary/train.bin",
+    ];
+
+    for candidate in &candidates {
+        if Path::new(candidate).exists() {
+            if let Ok(res) = load_cifar100_from_binary(candidate, max_samples) {
+                return res;
+            }
+        }
+    }
+
+    generate_cifar100_dataset(max_samples.unwrap_or(1000), 0.05)
+}
+
 /// Splits features and labels into training and test splits according to `test_ratio`.
 pub fn train_test_split(
     features: &RawTensor,
@@ -717,5 +1133,36 @@ mod tests {
         assert_eq!(norm_x.shape(), &[150, 4]);
         assert_eq!(mean.len(), 4);
         assert_eq!(std.len(), 4);
+    }
+
+    #[test]
+    fn test_mnist_generator() {
+        let (x, y) = generate_mnist_dataset(50, 0.05);
+        assert_eq!(x.shape(), &[50, 1, 28, 28]);
+        assert_eq!(y.len(), 50);
+        for &l in &y {
+            assert!(l < 10);
+        }
+    }
+
+    #[test]
+    fn test_cifar10_generator() {
+        let (x, y) = generate_cifar10_dataset(50, 0.05);
+        assert_eq!(x.shape(), &[50, 3, 32, 32]);
+        assert_eq!(y.len(), 50);
+        for &l in &y {
+            assert!(l < 10);
+        }
+        assert_eq!(CIFAR10_CLASSES.len(), 10);
+    }
+
+    #[test]
+    fn test_cifar100_generator() {
+        let (x, y) = generate_cifar100_dataset(50, 0.05);
+        assert_eq!(x.shape(), &[50, 3, 32, 32]);
+        assert_eq!(y.len(), 50);
+        for &l in &y {
+            assert!(l < 100);
+        }
     }
 }

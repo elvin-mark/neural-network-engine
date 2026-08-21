@@ -174,13 +174,13 @@ fn main() -> Result<()> {
 ## Running Tests, Examples & Benchmarks
 
 ### Downloading Real-World Datasets (Optional)
-To download official UCI Machine Learning datasets (Fisher's Iris and 8x8 Optical Digits) into `data/` (gitignored):
+To download standard benchmark datasets (Fisher's Iris, 8x8 Digits, MNIST, CIFAR-10, and CIFAR-100) into `data/` (gitignored):
 ```bash
 ./scripts/download_datasets.sh
 # or using Python:
 python3 scripts/download_datasets.py
 ```
-*(If the `data/` directory is not present, the examples will seamlessly use the built-in canonical datasets).*
+*(If the `data/` directory is not present, all examples will seamlessly use high-fidelity built-in synthetic datasets).*
 
 ### Run All Tests
 ```bash
@@ -189,13 +189,12 @@ cargo test
 
 ### Run Examples
 
-
 1. **Non-linear 2D Spiral Classifier (MLP + Adam)**:
    ```bash
    cargo run --release --example 01_spiral_mlp
    ```
 
-2. **ConvNet Image Classifier with SafeTensors Serialization**:
+2. **28x28 MNIST Handwritten Digits CNN Classifier (SafeTensors)**:
    ```bash
    cargo run --release --example 02_mnist_convnet
    ```
@@ -225,6 +224,15 @@ cargo test
    cargo run --release --example 07_digits_recognition
    ```
 
+8. **32x32 RGB CIFAR-10 10-Class ConvNet Image Classifier**:
+   ```bash
+   cargo run --release --example 08_cifar10_convnet
+   ```
+
+9. **32x32 RGB CIFAR-100 100-Class ConvNet with Top-1 / Top-5 Evaluation**:
+   ```bash
+   cargo run --release --example 09_cifar100_convnet
+   ```
 
 ### Run Benchmarks
 ```bash

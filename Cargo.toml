@@ -56,6 +56,15 @@ path = "examples/06_iris_classification.rs"
 name = "07_digits_recognition"
 path = "examples/07_digits_recognition.rs"
 
+[[example]]
+name = "08_cifar10_convnet"
+path = "examples/08_cifar10_convnet.rs"
+
+[[example]]
+name = "09_cifar100_convnet"
+path = "examples/09_cifar100_convnet.rs"
+
+
 
 
 
