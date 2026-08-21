@@ -45,8 +45,7 @@ impl Linear {
 
 impl Module for Linear {
     fn forward(&self, input: &Tensor) -> Result<Tensor> {
-        let w_t = self.weight.transpose(0, 1)?;
-        let mut out = input.matmul(&w_t)?;
+        let mut out = input.matmul_transposed_b(&self.weight)?;
 
         if let Some(ref b) = self.bias {
             // If input is batched (e.g. 2D [B, out_features]), broadcasting works automatically

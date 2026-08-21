@@ -450,6 +450,51 @@ impl Tensor {
         })
     }
 
+    /// Multiplies self by transposed other (C = self * other^T) without allocating intermediate transposed buffers.
+    pub fn matmul_transposed_b(&self, other: &Tensor) -> Result<Tensor> {
+        let a_data = self.data();
+        let b_data = other.data();
+        let out_data = crate::tensor::matmul::matmul_transposed_b(&a_data, &b_data)?;
+
+        if !is_grad_enabled() || (!self.requires_grad() && !other.requires_grad()) {
+            return Ok(Tensor::new(out_data, false));
+        }
+
+        let a_shape = a_data.shape().to_vec();
+        let b_shape = b_data.shape().to_vec();
+        let a_req = self.requires_grad();
+        let b_req = other.requires_grad();
+
+        let backward_fn: BackwardFn = Arc::new(move |grad| {
+            let mut grads = Vec::new();
+            if a_req {
+                // dA = grad * B
+                let da = matmul(grad, &b_data).unwrap();
+                grads.push(Some(unbroadcast_to(&da, &a_shape).unwrap()));
+            } else {
+                grads.push(None);
+            }
+            if b_req {
+                // dB = grad^T * A
+                let g_ndim = grad.ndim();
+                let g_t = grad.transpose(g_ndim - 2, g_ndim - 1).unwrap();
+                let db = matmul(&g_t, &a_data).unwrap();
+                grads.push(Some(unbroadcast_to(&db, &b_shape).unwrap()));
+            } else {
+                grads.push(None);
+            }
+            grads
+        });
+
+        Ok(Tensor {
+            inner: TensorInner::with_parents(
+                out_data,
+                vec![self.inner.clone(), other.inner.clone()],
+                backward_fn,
+            ),
+        })
+    }
+
     /// Sum reduction along an axis.
     pub fn sum(&self, axis: usize, keepdim: bool) -> Result<Tensor> {
         let a_data = self.data();
