@@ -191,6 +191,11 @@ cargo test
    cargo run --release --example 03_character_lm
    ```
 
+4. **Decoder-Only Causal Transformer Language Model (nanoGPT architecture)**:
+   ```bash
+   cargo run --release --example 04_transformer_lm
+   ```
+
 ### Run Benchmarks
 ```bash
 cargo bench

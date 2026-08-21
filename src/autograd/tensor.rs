@@ -7,6 +7,9 @@ use crate::tensor::conv::{
     conv2d_backward, conv2d_forward, max_pool2d_backward, max_pool2d_forward, Conv2dParams,
 };
 use crate::tensor::matmul::matmul;
+use crate::tensor::shape::{
+    compute_c_contiguous_strides, flat_to_multi_index, multi_index_to_offset, numel,
+};
 use crate::tensor::RawTensor;
 use std::collections::HashSet;
 use std::fmt;
@@ -364,6 +367,24 @@ impl Tensor {
                 backward_fn,
             ),
         })
+    }
+
+    /// Adds a scalar value elementwise.
+    pub fn add_scalar(&self, val: f32) -> Result<Tensor> {
+        let scalar = Tensor::scalar(val, false);
+        self.add(&scalar)
+    }
+
+    /// Multiplies by a scalar value elementwise.
+    pub fn mul_scalar(&self, val: f32) -> Result<Tensor> {
+        let scalar = Tensor::scalar(val, false);
+        self.mul(&scalar)
+    }
+
+    /// Divides by a scalar value elementwise.
+    pub fn div_scalar(&self, val: f32) -> Result<Tensor> {
+        let scalar = Tensor::scalar(val, false);
+        self.div(&scalar)
     }
 
     /// Unary negation.
@@ -833,6 +854,43 @@ impl Tensor {
             });
             let d = grad.mul(&sign).unwrap();
             vec![Some(d)]
+        });
+
+        Ok(Tensor {
+            inner: TensorInner::with_parents(out_data, vec![self.inner.clone()], backward_fn),
+        })
+    }
+
+    /// Slices the tensor along an axis from start to end (end-exclusive).
+    pub fn slice(&self, axis: usize, start: usize, end: usize) -> Result<Tensor> {
+        let a_data = self.data();
+        let in_shape = a_data.shape().to_vec();
+        let out_data = a_data.slice(axis, start, end)?;
+
+        if !is_grad_enabled() || !self.requires_grad() {
+            return Ok(Tensor::new(out_data, false));
+        }
+
+        let backward_fn: BackwardFn = Arc::new(move |grad| {
+            let ndim = in_shape.len();
+            let mut full_grad_data = vec![0.0; numel(&in_shape)];
+            let full_strides = compute_c_contiguous_strides(&in_shape);
+
+            let g_contig = grad.to_contiguous();
+            let g_shape = g_contig.shape();
+            let g_numel = g_contig.numel();
+
+            for idx in 0..g_numel {
+                let mut multi = vec![0; ndim];
+                flat_to_multi_index(idx, g_shape, &mut multi);
+                let val = g_contig.get(&multi);
+
+                multi[axis] += start;
+                let full_off = multi_index_to_offset(&multi, &full_strides, 0);
+                full_grad_data[full_off] = val;
+            }
+
+            vec![Some(RawTensor::from_vec(full_grad_data, in_shape.clone()))]
         });
 
         Ok(Tensor {

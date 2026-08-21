@@ -32,3 +32,8 @@ path = "examples/02_mnist_convnet.rs"
 name = "03_character_lm"
 path = "examples/03_character_lm.rs"
 
+[[example]]
+name = "04_transformer_lm"
+path = "examples/04_transformer_lm.rs"
+
+
