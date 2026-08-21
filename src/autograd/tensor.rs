@@ -194,7 +194,7 @@ impl Tensor {
                 // If this node has backward_fn, propagate gradients to parents
                 if let Some(ref backward_fn) = node.backward_fn {
                     let parent_grads = backward_fn(&current_grad);
-                    for (parent, p_grad_opt) in node.parents.iter().zip(parent_grads.into_iter()) {
+                    for (parent, p_grad_opt) in node.parents.iter().zip(parent_grads) {
                         if let Some(p_grad) = p_grad_opt {
                             if parent.requires_grad.load(Ordering::Relaxed) {
                                 match grads.get_mut(&parent.id) {
