@@ -5,5 +5,22 @@
   "rust-analyzer.diagnostics.enable": false,
   "rust-analyzer.diagnostics.disabled": [
     "type-mismatch"
-  ]
+  ],
+  "editor.formatOnSave": true,
+  "editor.formatOnPaste": true,
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+    "editor.formatOnSave": true
+  },
+  "[toml]": {
+    "editor.defaultFormatter": "tamasfe.even-better-toml",
+    "editor.formatOnSave": true
+  },
+  "[json]": {
+    "editor.defaultFormatter": "vscode.json-language-features",
+    "editor.formatOnSave": true
+  },
+  "[markdown]": {
+    "editor.formatOnSave": true
+  }
 }
