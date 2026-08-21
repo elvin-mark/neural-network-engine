@@ -2,6 +2,7 @@
   "rust-analyzer.check.command": "clippy",
   "rust-analyzer.check.allTargets": true,
   "rust-analyzer.cargo.allFeatures": true,
+  "rust-analyzer.diagnostics.enable": false,
   "rust-analyzer.diagnostics.disabled": [
     "type-mismatch"
   ]
