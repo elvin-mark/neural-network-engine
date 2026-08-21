@@ -113,14 +113,15 @@ fn main() -> Result<()> {
     println!("   07_digits_recognition: CNN on 8x8 Handwritten Digits     ");
     println!("============================================================\n");
 
-    let num_samples = 600;
-    let (dataset_x, dataset_y) = generate_digits_dataset(num_samples, 0.08);
+    let max_samples = 1000;
+    let (dataset_x, dataset_y) = load_digits_dataset(Some(max_samples));
+    let num_samples = dataset_y.len();
     println!(
-        "Generated {} samples of 8x8 digits across 10 classes (0-9)",
+        "Loaded {} samples of 8x8 digits across 10 classes (0-9)",
         num_samples
     );
 
-    // 80% train = 480, 20% test = 120
+    // 80% train, 20% test
     let (train_x, train_y, test_x, test_y) = train_test_split(&dataset_x, &dataset_y, 0.20, true);
     println!(
         "Train set size: {} images | Test set size: {} images\n",

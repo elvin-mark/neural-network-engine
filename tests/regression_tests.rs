@@ -166,6 +166,34 @@ fn test_data_utils_hardening_and_contiguity() {
 }
 
 #[test]
+fn test_csv_dataset_loaders() {
+    // 1. Iris CSV parser test
+    let iris_csv = "5.1,3.5,1.4,0.2,Iris-setosa\n6.7,3.0,5.0,1.7,Iris-versicolor\n6.3,3.3,6.0,2.5,Iris-virginica\n";
+    let iris_path = "target/test_iris.csv";
+    let mut f1 = File::create(iris_path).unwrap();
+    f1.write_all(iris_csv.as_bytes()).unwrap();
+
+    let (x_iris, y_iris) = load_iris_from_csv(iris_path).unwrap();
+    assert_eq!(x_iris.shape(), &[3, 4]);
+    assert_eq!(y_iris, vec![0, 1, 2]);
+
+    // 2. Digits CSV parser test (64 zeros + label 7)
+    let mut digits_line = vec!["0"; 64];
+    digits_line[10] = "16"; // 16 / 16 = 1.0
+    let mut line_str = digits_line.join(",");
+    line_str.push_str(",7\n");
+
+    let digits_path = "target/test_digits.csv";
+    let mut f2 = File::create(digits_path).unwrap();
+    f2.write_all(line_str.as_bytes()).unwrap();
+
+    let (x_digits, y_digits) = load_digits_from_csv(digits_path, None).unwrap();
+    assert_eq!(x_digits.shape(), &[1, 1, 8, 8]);
+    assert_eq!(y_digits, vec![7]);
+    assert!((x_digits.as_slice()[10] - 1.0).abs() < 1e-4);
+}
+
+#[test]
 #[should_panic(expected = "DataLoader batch_size must be greater than 0")]
 fn test_dataloader_zero_batch_size_panics() {
     let features = RawTensor::zeros(&[10, 2]);

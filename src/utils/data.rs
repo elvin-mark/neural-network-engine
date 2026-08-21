@@ -169,10 +169,185 @@ pub fn generate_xor_dataset(num_points: usize, noise: f32) -> (RawTensor, Vec<us
     (RawTensor::from_vec(x_data, vec![num_points, 2]), labels)
 }
 
-/// Canonical Fisher's Iris Dataset (150 samples, 4 features, 3 classes).
-/// Features: [sepal_length, sepal_width, petal_length, petal_width] in cm.
-/// Classes: 0: Iris-Setosa, 1: Iris-Versicolor, 2: Iris-Virginica (50 samples each).
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
+
+/// Loads Fisher's Iris dataset from a CSV/data file.
+/// Format per line: `sepal_length,sepal_width,petal_length,petal_width,class_name`
+pub fn load_iris_from_csv<P: AsRef<Path>>(path: P) -> Result<(RawTensor, Vec<usize>)> {
+    let file = File::open(&path).map_err(|e| {
+        EngineError::SerializationError(format!(
+            "Failed to open Iris dataset file '{}': {}",
+            path.as_ref().display(),
+            e
+        ))
+    })?;
+    let reader = BufReader::new(file);
+
+    let mut features = Vec::new();
+    let mut labels = Vec::new();
+
+    for (line_num, line_res) in reader.lines().enumerate() {
+        let line = line_res.map_err(|e| {
+            EngineError::SerializationError(format!("Error reading line {}: {}", line_num + 1, e))
+        })?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let parts: Vec<&str> = trimmed.split(',').map(|s| s.trim()).collect();
+        if parts.len() < 5 {
+            return Err(EngineError::SerializationError(format!(
+                "Invalid Iris line {} in '{}': expected 5 fields, found {}",
+                line_num + 1,
+                path.as_ref().display(),
+                parts.len()
+            )));
+        }
+
+        for p in &parts[..4] {
+            let val: f32 = p.parse().map_err(|e| {
+                EngineError::SerializationError(format!(
+                    "Failed to parse float '{}' at line {}: {}",
+                    p,
+                    line_num + 1,
+                    e
+                ))
+            })?;
+            features.push(val);
+        }
+
+        let class_str = parts[4].to_lowercase();
+        let label = if class_str.contains("setosa") || class_str == "0" {
+            0
+        } else if class_str.contains("versicolor") || class_str == "1" {
+            1
+        } else if class_str.contains("virginica") || class_str == "2" {
+            2
+        } else {
+            return Err(EngineError::SerializationError(format!(
+                "Unknown Iris class '{}' at line {}",
+                parts[4],
+                line_num + 1
+            )));
+        };
+        labels.push(label);
+    }
+
+    let n = labels.len();
+    if n == 0 {
+        return Err(EngineError::SerializationError(format!(
+            "Iris dataset file '{}' is empty",
+            path.as_ref().display()
+        )));
+    }
+
+    Ok((RawTensor::from_vec(features, vec![n, 4]), labels))
+}
+
+/// Loads Optical Handwritten Digits dataset from a CSV/data file (e.g. `optdigits.tra` or `optdigits.tes`).
+/// Format per line: 64 comma-separated pixel values (0..16) followed by 1 class label (0..9).
+pub fn load_digits_from_csv<P: AsRef<Path>>(
+    path: P,
+    max_samples: Option<usize>,
+) -> Result<(RawTensor, Vec<usize>)> {
+    let file = File::open(&path).map_err(|e| {
+        EngineError::SerializationError(format!(
+            "Failed to open Digits dataset file '{}': {}",
+            path.as_ref().display(),
+            e
+        ))
+    })?;
+    let reader = BufReader::new(file);
+
+    let mut images = Vec::new();
+    let mut labels = Vec::new();
+
+    for (line_num, line_res) in reader.lines().enumerate() {
+        if let Some(max_s) = max_samples {
+            if labels.len() >= max_s {
+                break;
+            }
+        }
+
+        let line = line_res.map_err(|e| {
+            EngineError::SerializationError(format!("Error reading line {}: {}", line_num + 1, e))
+        })?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let parts: Vec<&str> = trimmed.split(',').map(|s| s.trim()).collect();
+        if parts.len() < 65 {
+            return Err(EngineError::SerializationError(format!(
+                "Invalid digits line {} in '{}': expected 65 fields, found {}",
+                line_num + 1,
+                path.as_ref().display(),
+                parts.len()
+            )));
+        }
+
+        // 64 pixel floats normalized to [0.0, 1.0] (0..16 -> 0.0..1.0)
+        for p in &parts[..64] {
+            let pixel_val: f32 = p.parse().map_err(|e| {
+                EngineError::SerializationError(format!(
+                    "Failed to parse pixel '{}' at line {}: {}",
+                    p,
+                    line_num + 1,
+                    e
+                ))
+            })?;
+            images.push((pixel_val / 16.0).clamp(0.0, 1.0));
+        }
+
+        let label: usize = parts[64].parse().map_err(|e| {
+            EngineError::SerializationError(format!(
+                "Failed to parse digit label '{}' at line {}: {}",
+                parts[64],
+                line_num + 1,
+                e
+            ))
+        })?;
+        if label > 9 {
+            return Err(EngineError::SerializationError(format!(
+                "Invalid digit label {} at line {} (expected 0..9)",
+                label,
+                line_num + 1
+            )));
+        }
+        labels.push(label);
+    }
+
+    let n = labels.len();
+    if n == 0 {
+        return Err(EngineError::SerializationError(format!(
+            "Digits dataset file '{}' is empty",
+            path.as_ref().display()
+        )));
+    }
+
+    Ok((RawTensor::from_vec(images, vec![n, 1, 8, 8]), labels))
+}
+
+/// Fisher's Iris Dataset (150 samples, 4 features, 3 classes).
+/// Checks `data/iris.data` or `data/iris.csv` first if downloaded, otherwise uses the canonical embedded dataset.
 pub fn load_iris_dataset() -> (RawTensor, Vec<usize>) {
+    for candidate in &[
+        "data/iris.data",
+        "data/iris.csv",
+        "../data/iris.data",
+        "../data/iris.csv",
+    ] {
+        if Path::new(candidate).exists() {
+            if let Ok(res) = load_iris_from_csv(candidate) {
+                return res;
+            }
+        }
+    }
+
     #[rustfmt::skip]
     const IRIS_DATA: [f32; 600] = [
         // Setosa (class 0)
@@ -228,6 +403,25 @@ pub fn load_iris_dataset() -> (RawTensor, Vec<usize>) {
         RawTensor::from_vec(IRIS_DATA.to_vec(), vec![150, 4]),
         labels,
     )
+}
+
+/// Loads 8x8 Optical Handwritten Digits dataset (0..9).
+/// Checks `data/optdigits.tra` or `data/digits.csv` first if downloaded, otherwise generates synthetic samples.
+pub fn load_digits_dataset(max_samples: Option<usize>) -> (RawTensor, Vec<usize>) {
+    for candidate in &[
+        "data/optdigits.tra",
+        "data/digits.csv",
+        "../data/optdigits.tra",
+        "../data/digits.csv",
+    ] {
+        if Path::new(candidate).exists() {
+            if let Ok(res) = load_digits_from_csv(candidate, max_samples) {
+                return res;
+            }
+        }
+    }
+
+    generate_digits_dataset(max_samples.unwrap_or(600), 0.08)
 }
 
 /// Generates an 8x8 handwritten optical digit recognition dataset (0..9).

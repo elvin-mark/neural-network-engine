@@ -173,12 +173,22 @@ fn main() -> Result<()> {
 
 ## Running Tests, Examples & Benchmarks
 
+### Downloading Real-World Datasets (Optional)
+To download official UCI Machine Learning datasets (Fisher's Iris and 8x8 Optical Digits) into `data/` (gitignored):
+```bash
+./scripts/download_datasets.sh
+# or using Python:
+python3 scripts/download_datasets.py
+```
+*(If the `data/` directory is not present, the examples will seamlessly use the built-in canonical datasets).*
+
 ### Run All Tests
 ```bash
 cargo test
 ```
 
 ### Run Examples
+
 
 1. **Non-linear 2D Spiral Classifier (MLP + Adam)**:
    ```bash
