@@ -178,24 +178,36 @@ impl Tensor {
 
         build_topo(&self.inner, &mut visited, &mut topo);
 
-        // Seed the gradient with 1.0 (ones_like self)
-        let self_shape = self.shape();
-        let seed_grad = RawTensor::ones(&self_shape);
-        self.inner.accumulate_grad(seed_grad);
+        // Ephemeral per-backward gradient map (Node ID -> Accumulated Gradient)
+        let mut grads: std::collections::HashMap<usize, RawTensor> =
+            std::collections::HashMap::new();
+        grads.insert(self.inner.id, RawTensor::ones(&self.shape()));
 
         // Propagate backwards through topologically sorted nodes
         for node in topo.iter().rev() {
-            let maybe_grad = {
-                let g = node.grad.read().unwrap();
-                g.clone()
-            };
+            if let Some(current_grad) = grads.remove(&node.id) {
+                // If this is a leaf node, accumulate into its persistent grad storage
+                if node.parents.is_empty() && node.requires_grad.load(Ordering::Relaxed) {
+                    node.accumulate_grad(current_grad.clone());
+                }
 
-            if let Some(grad) = maybe_grad {
+                // If this node has backward_fn, propagate gradients to parents
                 if let Some(ref backward_fn) = node.backward_fn {
-                    let parent_grads = backward_fn(&grad);
+                    let parent_grads = backward_fn(&current_grad);
                     for (parent, p_grad_opt) in node.parents.iter().zip(parent_grads.into_iter()) {
                         if let Some(p_grad) = p_grad_opt {
-                            parent.accumulate_grad(p_grad);
+                            if parent.requires_grad.load(Ordering::Relaxed) {
+                                match grads.get_mut(&parent.id) {
+                                    Some(existing) => {
+                                        *existing = existing
+                                            .add(&p_grad)
+                                            .expect("Failed to accumulate gradient in backward");
+                                    }
+                                    None => {
+                                        grads.insert(parent.id, p_grad);
+                                    }
+                                }
+                            }
                         }
                     }
                 }

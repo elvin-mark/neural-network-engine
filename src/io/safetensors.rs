@@ -13,25 +13,20 @@ pub fn save_safetensors<P: AsRef<Path>>(
     tensors: &HashMap<String, RawTensor>,
     path: P,
 ) -> Result<()> {
-    let mut views: HashMap<String, TensorView> = HashMap::new();
     let mut raw_bytes_storage: Vec<Vec<u8>> = Vec::new();
 
-    // Contiguous raw buffers converted to byte slices
+    // Convert contiguous float buffers to little-endian byte vectors safely
     for tensor in tensors.values() {
         let contig = tensor.to_contiguous();
         let slice = contig.as_slice();
-        let byte_len = slice.len() * 4;
-        let mut byte_vec = vec![0u8; byte_len];
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                slice.as_ptr() as *const u8,
-                byte_vec.as_mut_ptr(),
-                byte_len,
-            );
+        let mut byte_vec = Vec::with_capacity(slice.len() * 4);
+        for &val in slice {
+            byte_vec.extend_from_slice(&val.to_le_bytes());
         }
         raw_bytes_storage.push(byte_vec);
     }
 
+    let mut views: HashMap<String, TensorView> = HashMap::new();
     for (idx, (name, tensor)) in tensors.iter().enumerate() {
         let byte_slice = &raw_bytes_storage[idx];
         let shape = tensor.shape().to_vec();
@@ -70,17 +65,33 @@ pub fn load_safetensors<P: AsRef<Path>>(path: P) -> Result<HashMap<String, RawTe
 
     let mut result = HashMap::new();
     for (name, view) in st.tensors() {
+        if view.dtype() != Dtype::F32 {
+            return Err(EngineError::SerializationError(format!(
+                "Unsupported SafeTensors dtype {:?} for tensor '{}'. Only F32 is currently supported.",
+                view.dtype(),
+                name
+            )));
+        }
+
         let shape = view.shape().to_vec();
         let data_bytes = view.data();
-        let num_floats = data_bytes.len() / 4;
-        let mut float_data = vec![0.0f32; num_floats];
+        let expected_elements: usize = shape.iter().product();
+        if data_bytes.len() != expected_elements * 4 {
+            return Err(EngineError::SerializationError(format!(
+                "Byte length mismatch for tensor '{}': expected {} bytes for shape {:?}, found {} bytes",
+                name,
+                expected_elements * 4,
+                shape,
+                data_bytes.len()
+            )));
+        }
 
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                data_bytes.as_ptr(),
-                float_data.as_mut_ptr() as *mut u8,
-                data_bytes.len(),
-            );
+        let mut float_data = Vec::with_capacity(expected_elements);
+        for chunk in data_bytes.chunks_exact(4) {
+            let bytes: [u8; 4] = chunk.try_into().map_err(|_| {
+                EngineError::SerializationError("Failed to convert 4 bytes to f32".to_string())
+            })?;
+            float_data.push(f32::from_le_bytes(bytes));
         }
 
         let tensor = RawTensor::from_vec(float_data, shape);

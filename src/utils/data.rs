@@ -15,8 +15,10 @@ pub struct TensorDataset {
 
 impl TensorDataset {
     pub fn new(features: RawTensor, targets: RawTensor) -> Result<Self> {
-        let f_len = features.shape().first().copied().unwrap_or(0);
-        let t_len = targets.shape().first().copied().unwrap_or(0);
+        let f_contig = features.to_contiguous();
+        let t_contig = targets.to_contiguous();
+        let f_len = f_contig.shape().first().copied().unwrap_or(0);
+        let t_len = t_contig.shape().first().copied().unwrap_or(0);
 
         if f_len != t_len {
             return Err(EngineError::ShapeMismatch {
@@ -26,8 +28,8 @@ impl TensorDataset {
         }
 
         Ok(Self {
-            features,
-            targets,
+            features: f_contig,
+            targets: t_contig,
             length: f_len,
         })
     }
@@ -44,6 +46,10 @@ pub struct DataLoader<'a> {
 
 impl<'a> DataLoader<'a> {
     pub fn new(dataset: &'a TensorDataset, batch_size: usize, shuffle: bool) -> Self {
+        assert!(
+            batch_size > 0,
+            "DataLoader batch_size must be greater than 0"
+        );
         let mut indices: Vec<usize> = (0..dataset.length).collect();
         if shuffle {
             indices.shuffle(&mut rand::thread_rng());
@@ -377,8 +383,9 @@ pub fn train_test_split(
     test_ratio: f32,
     shuffle: bool,
 ) -> (RawTensor, Vec<usize>, RawTensor, Vec<usize>) {
+    let contig_features = features.to_contiguous();
     let n = labels.len();
-    assert_eq!(features.shape()[0], n);
+    assert_eq!(contig_features.shape()[0], n);
 
     let mut indices: Vec<usize> = (0..n).collect();
     if shuffle {
@@ -388,8 +395,8 @@ pub fn train_test_split(
     let test_size = ((n as f32) * test_ratio).round() as usize;
     let train_size = n - test_size;
 
-    let sample_elements: usize = features.shape()[1..].iter().product();
-    let f_slice = features.as_slice();
+    let sample_elements: usize = contig_features.shape()[1..].iter().product();
+    let f_slice = contig_features.as_slice();
 
     let mut train_f = vec![0.0f32; train_size * sample_elements];
     let mut train_l = Vec::with_capacity(train_size);
@@ -409,9 +416,9 @@ pub fn train_test_split(
         test_f[dst..dst + sample_elements].copy_from_slice(&f_slice[src..src + sample_elements]);
     }
 
-    let mut train_shape = features.shape().to_vec();
+    let mut train_shape = contig_features.shape().to_vec();
     train_shape[0] = train_size;
-    let mut test_shape = features.shape().to_vec();
+    let mut test_shape = contig_features.shape().to_vec();
     test_shape[0] = test_size;
 
     (
@@ -424,11 +431,12 @@ pub fn train_test_split(
 
 /// Standardizes features along each feature column (zero mean, unit variance).
 pub fn standardize(features: &RawTensor) -> (RawTensor, Vec<f32>, Vec<f32>) {
-    let shape = features.shape();
+    let contig = features.to_contiguous();
+    let shape = contig.shape();
     assert_eq!(shape.len(), 2, "Standardize expects 2D [N, D] tensor");
     let n = shape[0] as f32;
     let d = shape[1];
-    let slice = features.as_slice();
+    let slice = contig.as_slice();
 
     let mut mean = vec![0.0f32; d];
     let mut std = vec![0.0f32; d];

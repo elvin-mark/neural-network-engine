@@ -317,13 +317,24 @@ impl RawTensor {
             )));
         }
 
+        let mut seen = vec![false; ndim];
+        for &d in dims {
+            if d >= ndim {
+                return Err(EngineError::DimensionOutOfBounds { axis: d, ndim });
+            }
+            if seen[d] {
+                return Err(EngineError::InvalidArgument(format!(
+                    "Duplicate axis {} in permute order {:?}",
+                    d, dims
+                )));
+            }
+            seen[d] = true;
+        }
+
         let mut new_shape = vec![0; ndim];
         let mut new_strides = vec![0; ndim];
 
         for (i, &d) in dims.iter().enumerate() {
-            if d >= ndim {
-                return Err(EngineError::DimensionOutOfBounds { axis: d, ndim });
-            }
             new_shape[i] = self.shape[d];
             new_strides[i] = self.strides[d];
         }

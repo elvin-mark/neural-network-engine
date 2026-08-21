@@ -2,6 +2,14 @@
 name = "neural-network-engine"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.75"
+description = "An efficient, pure-Rust deep learning engine with dynamic autograd, strided tensors, and modern NN/LLM primitives"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/elvin-mark/neural-network-engine"
+readme = "README.md"
+keywords = ["deep-learning", "neural-network", "autograd", "tensor", "machine-learning"]
+categories = ["science", "algorithms"]
+
 
 [dependencies]
 rayon = "1.10"

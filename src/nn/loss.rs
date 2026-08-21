@@ -1,14 +1,14 @@
 //! Loss functions (MSELoss, CrossEntropyLoss, BCEWithLogitsLoss, L1Loss).
 
 use crate::autograd::Tensor;
-use crate::error::Result;
+use crate::error::{EngineError, Result};
 use crate::tensor::RawTensor;
 
 /// Mean Squared Error loss.
 pub struct MSELoss;
 
 impl MSELoss {
-    /// Computes MSE loss between predictions and targets: (1/N) * sum((pred - target)^2).
+    /// Computes MSE loss between predictions and targets: `(1/N) * sum((pred - target)^2)`.
     pub fn forward(pred: &Tensor, target: &Tensor) -> Result<Tensor> {
         let diff = pred.sub(target)?;
         let sq = diff.powf(2.0)?;
@@ -20,12 +20,36 @@ impl MSELoss {
 pub struct CrossEntropyLoss;
 
 impl CrossEntropyLoss {
-    /// Computes Cross Entropy loss from raw logits [N, C] and target class indices [N].
+    /// Computes Cross Entropy loss from raw logits `[N, C]` and target class indices `[N]`.
     pub fn forward_with_indices(logits: &Tensor, target_indices: &[usize]) -> Result<Tensor> {
-        let batch_size = target_indices.len();
-        let log_probs = logits.log_softmax(1)?;
+        let shape = logits.shape();
+        if shape.len() != 2 {
+            return Err(EngineError::InvalidArgument(format!(
+                "CrossEntropyLoss expects 2D logits [BatchSize, NumClasses], got shape {:?}",
+                shape
+            )));
+        }
 
-        let num_classes = logits.shape()[1];
+        let batch_size = shape[0];
+        let num_classes = shape[1];
+
+        if batch_size != target_indices.len() {
+            return Err(EngineError::ShapeMismatch {
+                expected: vec![batch_size],
+                actual: vec![target_indices.len()],
+            });
+        }
+
+        for (b, &target_class) in target_indices.iter().enumerate() {
+            if target_class >= num_classes {
+                return Err(EngineError::InvalidArgument(format!(
+                    "Target class index {} at sample {} is out of bounds for num_classes {}",
+                    target_class, b, num_classes
+                )));
+            }
+        }
+
+        let log_probs = logits.log_softmax(1)?;
 
         // Create one-hot mask for backward propagation
         let mut target_mask = vec![0.0; batch_size * num_classes];
@@ -43,7 +67,7 @@ impl CrossEntropyLoss {
         Ok(loss)
     }
 
-    /// Computes Cross Entropy loss from raw logits [N, C] and target probabilities [N, C].
+    /// Computes Cross Entropy loss from raw logits `[N, C]` and target probabilities `[N, C]`.
     pub fn forward_with_probabilities(logits: &Tensor, targets: &Tensor) -> Result<Tensor> {
         let log_probs = logits.log_softmax(1)?;
         let nll = log_probs.mul(targets)?.neg();

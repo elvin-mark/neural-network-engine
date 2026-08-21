@@ -88,14 +88,16 @@ impl Module for RMSNorm {
     }
 }
 
+use std::sync::{Arc, RwLock};
+
 /// 1D Batch Normalization over a 2D batch [BatchSize, NumFeatures].
 #[derive(Clone)]
 pub struct BatchNorm1d {
     pub num_features: usize,
     pub weight: Tensor, // gamma
     pub bias: Tensor,   // beta
-    pub running_mean: RawTensor,
-    pub running_var: RawTensor,
+    pub running_mean: Arc<RwLock<RawTensor>>,
+    pub running_var: Arc<RwLock<RawTensor>>,
     pub eps: f32,
     pub momentum: f32,
     pub is_training: bool,
@@ -107,12 +109,22 @@ impl BatchNorm1d {
             num_features,
             weight: Tensor::ones(&[1, num_features], true),
             bias: Tensor::zeros(&[1, num_features], true),
-            running_mean: RawTensor::zeros(&[1, num_features]),
-            running_var: RawTensor::ones(&[1, num_features]),
+            running_mean: Arc::new(RwLock::new(RawTensor::zeros(&[1, num_features]))),
+            running_var: Arc::new(RwLock::new(RawTensor::ones(&[1, num_features]))),
             eps: 1e-5,
             momentum: 0.1,
             is_training: true,
         }
+    }
+
+    /// Returns the current running mean tensor.
+    pub fn running_mean(&self) -> RawTensor {
+        self.running_mean.read().unwrap().clone()
+    }
+
+    /// Returns the current running variance tensor.
+    pub fn running_var(&self) -> RawTensor {
+        self.running_var.read().unwrap().clone()
     }
 }
 
@@ -124,6 +136,23 @@ impl Module for BatchNorm1d {
             let diff_sq = diff.powf(2.0)?;
             let var = diff_sq.mean(0, true)?;
 
+            // Update exponential moving average running statistics
+            let m = self.momentum;
+            let batch_mean = mean.data();
+            let batch_var = var.data();
+            {
+                let mut rm = self.running_mean.write().unwrap();
+                let scaled_rm = rm.mul_scalar(1.0 - m)?;
+                let scaled_bm = batch_mean.mul_scalar(m)?;
+                *rm = scaled_rm.add(&scaled_bm)?;
+            }
+            {
+                let mut rv = self.running_var.write().unwrap();
+                let scaled_rv = rv.mul_scalar(1.0 - m)?;
+                let scaled_bv = batch_var.mul_scalar(m)?;
+                *rv = scaled_rv.add(&scaled_bv)?;
+            }
+
             let var_eps = var.add(&Tensor::scalar(self.eps, false))?;
             let std = var_eps.powf(0.5)?;
             let norm = diff.div(&std)?;
@@ -131,8 +160,10 @@ impl Module for BatchNorm1d {
             let scaled = norm.mul(&self.weight)?;
             scaled.add(&self.bias)
         } else {
-            let mean_tensor = Tensor::new(self.running_mean.clone(), false);
-            let var_tensor = Tensor::new(self.running_var.clone(), false);
+            let mean_raw = self.running_mean.read().unwrap().clone();
+            let var_raw = self.running_var.read().unwrap().clone();
+            let mean_tensor = Tensor::new(mean_raw, false);
+            let var_tensor = Tensor::new(var_raw, false);
 
             let diff = input.sub(&mean_tensor)?;
             let var_eps = var_tensor.add(&Tensor::scalar(self.eps, false))?;
