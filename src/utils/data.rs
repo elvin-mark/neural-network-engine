@@ -162,3 +162,346 @@ pub fn generate_xor_dataset(num_points: usize, noise: f32) -> (RawTensor, Vec<us
 
     (RawTensor::from_vec(x_data, vec![num_points, 2]), labels)
 }
+
+/// Canonical Fisher's Iris Dataset (150 samples, 4 features, 3 classes).
+/// Features: [sepal_length, sepal_width, petal_length, petal_width] in cm.
+/// Classes: 0: Iris-Setosa, 1: Iris-Versicolor, 2: Iris-Virginica (50 samples each).
+pub fn load_iris_dataset() -> (RawTensor, Vec<usize>) {
+    #[rustfmt::skip]
+    const IRIS_DATA: [f32; 600] = [
+        // Setosa (class 0)
+        5.1, 3.5, 1.4, 0.2,  4.9, 3.0, 1.4, 0.2,  4.7, 3.2, 1.3, 0.2,  4.6, 3.1, 1.5, 0.2,
+        5.0, 3.6, 1.4, 0.2,  5.4, 3.9, 1.7, 0.4,  4.6, 3.4, 1.4, 0.3,  5.0, 3.4, 1.5, 0.2,
+        4.4, 2.9, 1.4, 0.2,  4.9, 3.1, 1.5, 0.1,  5.4, 3.7, 1.5, 0.2,  4.8, 3.4, 1.6, 0.2,
+        4.8, 3.0, 1.4, 0.1,  4.3, 3.0, 1.1, 0.1,  5.8, 4.0, 1.2, 0.2,  5.7, 4.4, 1.5, 0.4,
+        5.4, 3.9, 1.3, 0.4,  5.1, 3.5, 1.4, 0.3,  5.7, 3.8, 1.7, 0.3,  5.1, 3.8, 1.5, 0.3,
+        5.4, 3.4, 1.7, 0.2,  5.1, 3.7, 1.5, 0.4,  4.6, 3.6, 1.0, 0.2,  5.1, 3.3, 1.7, 0.5,
+        4.8, 3.4, 1.9, 0.2,  5.0, 3.0, 1.6, 0.2,  5.0, 3.4, 1.6, 0.4,  5.2, 3.5, 1.5, 0.2,
+        5.2, 3.4, 1.4, 0.2,  4.7, 3.2, 1.6, 0.2,  4.8, 3.1, 1.6, 0.2,  5.4, 3.4, 1.5, 0.4,
+        5.2, 4.1, 1.5, 0.1,  5.5, 4.2, 1.4, 0.2,  4.9, 3.1, 1.5, 0.2,  5.0, 3.2, 1.2, 0.2,
+        5.5, 3.5, 1.3, 0.2,  4.9, 3.6, 1.4, 0.1,  4.4, 3.0, 1.3, 0.2,  5.1, 3.4, 1.5, 0.2,
+        5.0, 3.5, 1.3, 0.3,  4.5, 2.3, 1.3, 0.3,  4.4, 3.2, 1.3, 0.2,  5.0, 3.5, 1.6, 0.6,
+        5.1, 3.8, 1.9, 0.4,  4.8, 3.0, 1.4, 0.3,  5.1, 3.8, 1.6, 0.2,  4.6, 3.2, 1.4, 0.2,
+        5.3, 3.7, 1.5, 0.2,  5.0, 3.3, 1.4, 0.2,
+        // Versicolor (class 1)
+        7.0, 3.2, 4.7, 1.4,  6.4, 3.2, 4.5, 1.5,  6.9, 3.1, 4.9, 1.5,  5.5, 2.3, 4.0, 1.3,
+        6.5, 2.8, 4.6, 1.5,  5.7, 2.8, 4.5, 1.3,  6.3, 3.3, 4.7, 1.6,  4.9, 2.4, 3.3, 1.0,
+        6.6, 2.9, 4.6, 1.3,  5.2, 2.7, 3.9, 1.4,  5.0, 2.0, 3.5, 1.0,  5.9, 3.0, 4.2, 1.5,
+        6.0, 2.2, 4.0, 1.0,  6.1, 2.9, 4.7, 1.4,  5.6, 2.9, 3.6, 1.3,  6.7, 3.1, 4.4, 1.4,
+        5.6, 3.0, 4.5, 1.5,  5.8, 2.7, 4.1, 1.0,  6.2, 2.2, 4.5, 1.5,  5.6, 2.5, 3.9, 1.1,
+        5.9, 3.2, 4.8, 1.8,  6.1, 2.8, 4.0, 1.3,  6.3, 2.5, 4.9, 1.5,  6.1, 2.8, 4.7, 1.2,
+        6.4, 2.9, 4.3, 1.3,  6.6, 3.0, 4.4, 1.4,  6.8, 2.8, 4.8, 1.4,  6.7, 3.0, 5.0, 1.7,
+        6.0, 2.9, 4.5, 1.5,  5.7, 2.6, 3.5, 1.0,  5.5, 2.4, 3.8, 1.1,  5.5, 2.4, 3.7, 1.0,
+        5.8, 2.7, 3.9, 1.2,  6.0, 2.7, 5.1, 1.6,  5.4, 3.0, 4.5, 1.5,  6.0, 3.4, 4.5, 1.6,
+        6.7, 3.1, 4.7, 1.5,  6.3, 2.3, 4.4, 1.3,  5.6, 3.0, 4.1, 1.3,  5.5, 2.5, 4.0, 1.3,
+        5.5, 2.6, 4.4, 1.2,  6.1, 3.0, 4.6, 1.4,  5.8, 2.6, 4.0, 1.2,  5.0, 2.3, 3.3, 1.0,
+        5.6, 2.7, 4.2, 1.3,  5.7, 3.0, 4.2, 1.2,  5.7, 2.9, 4.2, 1.3,  6.2, 2.9, 4.3, 1.3,
+        5.1, 2.5, 3.0, 1.1,  5.7, 2.8, 4.1, 1.3,
+        // Virginica (class 2)
+        6.3, 3.3, 6.0, 2.5,  5.8, 2.7, 5.1, 1.9,  7.1, 3.0, 5.9, 2.1,  6.3, 2.9, 5.6, 1.8,
+        6.5, 3.0, 5.8, 2.2,  7.6, 3.0, 6.6, 2.1,  4.9, 2.5, 4.5, 1.7,  7.3, 2.9, 6.3, 1.8,
+        6.7, 2.5, 5.8, 1.8,  7.2, 3.6, 6.1, 2.5,  6.5, 3.2, 5.1, 2.0,  6.4, 2.7, 5.3, 1.9,
+        6.8, 3.0, 5.5, 2.1,  5.7, 2.5, 5.0, 2.0,  5.8, 2.8, 5.1, 2.4,  6.4, 3.2, 5.3, 2.3,
+        6.5, 3.0, 5.5, 1.8,  7.7, 3.8, 6.7, 2.2,  7.7, 2.6, 6.9, 2.3,  6.0, 2.2, 5.0, 1.5,
+        6.9, 3.2, 5.7, 2.3,  5.6, 2.8, 4.9, 2.0,  7.7, 2.8, 6.7, 2.0,  6.3, 2.7, 4.9, 1.8,
+        6.7, 3.3, 5.7, 2.1,  7.2, 3.2, 6.0, 1.8,  6.2, 2.8, 4.8, 1.8,  6.1, 3.0, 4.9, 1.8,
+        6.4, 2.8, 5.6, 2.1,  7.2, 3.0, 5.8, 1.6,  7.4, 2.8, 6.1, 1.9,  7.9, 3.8, 6.4, 2.0,
+        6.4, 2.8, 5.6, 2.2,  6.3, 2.8, 5.1, 1.5,  6.1, 2.6, 5.6, 1.4,  7.7, 3.0, 6.1, 2.3,
+        6.3, 3.4, 5.6, 2.4,  6.4, 3.1, 5.5, 1.8,  6.0, 3.0, 4.8, 1.8,  6.9, 3.1, 5.4, 2.1,
+        6.7, 3.1, 5.6, 2.4,  6.9, 3.1, 5.1, 2.3,  5.8, 2.7, 5.1, 1.9,  6.8, 3.2, 5.9, 2.3,
+        6.7, 3.3, 5.7, 2.5,  6.7, 3.0, 5.2, 2.3,  6.3, 2.5, 5.0, 1.9,  6.5, 3.0, 5.2, 2.0,
+        6.2, 3.4, 5.4, 2.3,  5.9, 3.0, 5.1, 1.8,
+    ];
+
+    let mut labels = Vec::with_capacity(150);
+    labels.extend(vec![0; 50]);
+    labels.extend(vec![1; 50]);
+    labels.extend(vec![2; 50]);
+
+    (
+        RawTensor::from_vec(IRIS_DATA.to_vec(), vec![150, 4]),
+        labels,
+    )
+}
+
+/// Generates an 8x8 handwritten optical digit recognition dataset (0..9).
+/// Produces tensors formatted as `[num_samples, 1, 8, 8]` with integer labels `0..10`.
+pub fn generate_digits_dataset(num_samples: usize, noise: f32) -> (RawTensor, Vec<usize>) {
+    #[rustfmt::skip]
+    const DIGIT_BITMAPS: [[u8; 8]; 10] = [
+        // 0
+        [0b00111100,
+         0b01100110,
+         0b01100110,
+         0b01100110,
+         0b01100110,
+         0b01100110,
+         0b01100110,
+         0b00111100],
+        // 1
+        [0b00011000,
+         0b00111000,
+         0b00011000,
+         0b00011000,
+         0b00011000,
+         0b00011000,
+         0b00011000,
+         0b00111100],
+        // 2
+        [0b00111100,
+         0b01100110,
+         0b00000110,
+         0b00001100,
+         0b00011000,
+         0b00110000,
+         0b01100000,
+         0b01111110],
+        // 3
+        [0b00111100,
+         0b01100110,
+         0b00000110,
+         0b00011100,
+         0b00000110,
+         0b00000110,
+         0b01100110,
+         0b00111100],
+        // 4
+        [0b00001100,
+         0b00011100,
+         0b00101100,
+         0b01001100,
+         0b01111110,
+         0b00001100,
+         0b00001100,
+         0b00001100],
+        // 5
+        [0b01111110,
+         0b01100000,
+         0b01111100,
+         0b00000110,
+         0b00000110,
+         0b00000110,
+         0b01100110,
+         0b00111100],
+        // 6
+        [0b00111100,
+         0b01100000,
+         0b01100000,
+         0b01111100,
+         0b01100110,
+         0b01100110,
+         0b01100110,
+         0b00111100],
+        // 7
+        [0b01111110,
+         0b00000110,
+         0b00001100,
+         0b00011000,
+         0b00110000,
+         0b00110000,
+         0b00110000,
+         0b00110000],
+        // 8
+        [0b00111100,
+         0b01100110,
+         0b01100110,
+         0b00111100,
+         0b01100110,
+         0b01100110,
+         0b01100110,
+         0b00111100],
+        // 9
+        [0b00111100,
+         0b01100110,
+         0b01100110,
+         0b00111110,
+         0b00000110,
+         0b00000110,
+         0b01100110,
+         0b00111100],
+    ];
+
+    let mut images = vec![0.0f32; num_samples * 8 * 8];
+    let mut labels = vec![0usize; num_samples];
+    let mut rng = rand::thread_rng();
+
+    for i in 0..num_samples {
+        let digit = i % 10;
+        labels[i] = digit;
+        let base_bitmap = &DIGIT_BITMAPS[digit];
+        let img_offset = i * 64;
+
+        // Random affine-like shift / stroke perturbation
+        let shift_r: i32 = if rng.gen_bool(0.3) {
+            rng.gen_range(-1..=1)
+        } else {
+            0
+        };
+        let shift_c: i32 = if rng.gen_bool(0.3) {
+            rng.gen_range(-1..=1)
+        } else {
+            0
+        };
+        let intensity_scale: f32 = rng.gen_range(0.8..=1.2);
+
+        for r in 0..8 {
+            for c in 0..8 {
+                let src_r = (r as i32) - shift_r;
+                let src_c = (c as i32) - shift_c;
+
+                let is_on = if (0..8).contains(&src_r) && (0..8).contains(&src_c) {
+                    (base_bitmap[src_r as usize] & (1 << (7 - src_c))) != 0
+                } else {
+                    false
+                };
+
+                let base_val = if is_on { 1.0 * intensity_scale } else { 0.0 };
+
+                let sample_noise: f32 = (rng.gen::<f32>() - 0.5) * 2.0 * noise;
+                let pixel = (base_val + sample_noise).clamp(0.0, 1.0);
+                images[img_offset + r * 8 + c] = pixel;
+            }
+        }
+    }
+
+    (
+        RawTensor::from_vec(images, vec![num_samples, 1, 8, 8]),
+        labels,
+    )
+}
+
+/// Splits features and labels into training and test splits according to `test_ratio`.
+pub fn train_test_split(
+    features: &RawTensor,
+    labels: &[usize],
+    test_ratio: f32,
+    shuffle: bool,
+) -> (RawTensor, Vec<usize>, RawTensor, Vec<usize>) {
+    let n = labels.len();
+    assert_eq!(features.shape()[0], n);
+
+    let mut indices: Vec<usize> = (0..n).collect();
+    if shuffle {
+        indices.shuffle(&mut rand::thread_rng());
+    }
+
+    let test_size = ((n as f32) * test_ratio).round() as usize;
+    let train_size = n - test_size;
+
+    let sample_elements: usize = features.shape()[1..].iter().product();
+    let f_slice = features.as_slice();
+
+    let mut train_f = vec![0.0f32; train_size * sample_elements];
+    let mut train_l = Vec::with_capacity(train_size);
+    for (i, &idx) in indices[..train_size].iter().enumerate() {
+        train_l.push(labels[idx]);
+        let src = idx * sample_elements;
+        let dst = i * sample_elements;
+        train_f[dst..dst + sample_elements].copy_from_slice(&f_slice[src..src + sample_elements]);
+    }
+
+    let mut test_f = vec![0.0f32; test_size * sample_elements];
+    let mut test_l = Vec::with_capacity(test_size);
+    for (i, &idx) in indices[train_size..].iter().enumerate() {
+        test_l.push(labels[idx]);
+        let src = idx * sample_elements;
+        let dst = i * sample_elements;
+        test_f[dst..dst + sample_elements].copy_from_slice(&f_slice[src..src + sample_elements]);
+    }
+
+    let mut train_shape = features.shape().to_vec();
+    train_shape[0] = train_size;
+    let mut test_shape = features.shape().to_vec();
+    test_shape[0] = test_size;
+
+    (
+        RawTensor::from_vec(train_f, train_shape),
+        train_l,
+        RawTensor::from_vec(test_f, test_shape),
+        test_l,
+    )
+}
+
+/// Standardizes features along each feature column (zero mean, unit variance).
+pub fn standardize(features: &RawTensor) -> (RawTensor, Vec<f32>, Vec<f32>) {
+    let shape = features.shape();
+    assert_eq!(shape.len(), 2, "Standardize expects 2D [N, D] tensor");
+    let n = shape[0] as f32;
+    let d = shape[1];
+    let slice = features.as_slice();
+
+    let mut mean = vec![0.0f32; d];
+    let mut std = vec![0.0f32; d];
+
+    for row in 0..shape[0] {
+        for col in 0..d {
+            mean[col] += slice[row * d + col];
+        }
+    }
+    for col in 0..d {
+        mean[col] /= n;
+    }
+
+    for row in 0..shape[0] {
+        for col in 0..d {
+            let diff = slice[row * d + col] - mean[col];
+            std[col] += diff * diff;
+        }
+    }
+    for col in 0..d {
+        std[col] = (std[col] / n).sqrt().max(1e-7);
+    }
+
+    let mut out_data = vec![0.0f32; shape[0] * d];
+    for row in 0..shape[0] {
+        for col in 0..d {
+            out_data[row * d + col] = (slice[row * d + col] - mean[col]) / std[col];
+        }
+    }
+
+    (RawTensor::from_vec(out_data, shape.to_vec()), mean, std)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_iris_dataset_loader() {
+        let (x, y) = load_iris_dataset();
+        assert_eq!(x.shape(), &[150, 4]);
+        assert_eq!(y.len(), 150);
+        assert_eq!(y.iter().filter(|&&l| l == 0).count(), 50);
+        assert_eq!(y.iter().filter(|&&l| l == 1).count(), 50);
+        assert_eq!(y.iter().filter(|&&l| l == 2).count(), 50);
+    }
+
+    #[test]
+    fn test_digits_dataset_generator() {
+        let (x, y) = generate_digits_dataset(100, 0.05);
+        assert_eq!(x.shape(), &[100, 1, 8, 8]);
+        assert_eq!(y.len(), 100);
+        for &l in &y {
+            assert!(l < 10);
+        }
+    }
+
+    #[test]
+    fn test_train_test_split() {
+        let (x, y) = load_iris_dataset();
+        let (train_x, train_y, test_x, test_y) = train_test_split(&x, &y, 0.2, true);
+        assert_eq!(train_x.shape(), &[120, 4]);
+        assert_eq!(train_y.len(), 120);
+        assert_eq!(test_x.shape(), &[30, 4]);
+        assert_eq!(test_y.len(), 30);
+    }
+
+    #[test]
+    fn test_standardize() {
+        let (x, _) = load_iris_dataset();
+        let (norm_x, mean, std) = standardize(&x);
+        assert_eq!(norm_x.shape(), &[150, 4]);
+        assert_eq!(mean.len(), 4);
+        assert_eq!(std.len(), 4);
+    }
+}

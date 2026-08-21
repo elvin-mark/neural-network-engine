@@ -40,5 +40,14 @@ path = "examples/04_transformer_lm.rs"
 name = "05_llama2_gqa"
 path = "examples/05_llama2_gqa.rs"
 
+[[example]]
+name = "06_iris_classification"
+path = "examples/06_iris_classification.rs"
+
+[[example]]
+name = "07_digits_recognition"
+path = "examples/07_digits_recognition.rs"
+
+
 
 

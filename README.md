@@ -105,7 +105,11 @@ neural-network-engine/
 └── examples/
     ├── 01_spiral_mlp.rs         # Non-linear 2D spiral classification using MLP + Adam
     ├── 02_mnist_convnet.rs      # ConvNet training on image classification dataset
-    └── 03_character_lm.rs       # Character-level neural language model with Embeddings
+    ├── 03_character_lm.rs       # Character-level neural language model with Embeddings
+    ├── 04_transformer_lm.rs     # nanoGPT causal decoder transformer language model
+    ├── 05_llama2_gqa.rs         # LLaMA 2 with GQA, RoPE, RMSNorm & SwiGLU
+    ├── 06_iris_classification.rs# Fisher's Iris dataset MLP classification & confusion matrix
+    └── 07_digits_recognition.rs # 8x8 optical handwritten digits CNN recognition & ASCII viz
 ```
 
 ---
@@ -200,6 +204,17 @@ cargo test
    ```bash
    cargo run --release --example 05_llama2_gqa
    ```
+
+6. **Fisher's Iris Flower Classification (MLP + AdamW + Confusion Matrix)**:
+   ```bash
+   cargo run --release --example 06_iris_classification
+   ```
+
+7. **8x8 Optical Handwritten Digits Recognition (CNN + SafeTensors)**:
+   ```bash
+   cargo run --release --example 07_digits_recognition
+   ```
+
 
 ### Run Benchmarks
 ```bash

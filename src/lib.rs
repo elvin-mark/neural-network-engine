@@ -38,6 +38,7 @@ pub mod prelude {
     pub use crate::tensor::conv::Conv2dParams;
     pub use crate::tensor::RawTensor;
     pub use crate::utils::{
-        generate_spiral_dataset, generate_xor_dataset, gradcheck, DataLoader, TensorDataset,
+        generate_digits_dataset, generate_spiral_dataset, generate_xor_dataset, gradcheck,
+        load_iris_dataset, standardize, train_test_split, DataLoader, TensorDataset,
     };
 }
