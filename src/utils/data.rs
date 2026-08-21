@@ -325,9 +325,9 @@ pub fn generate_digits_dataset(num_samples: usize, noise: f32) -> (RawTensor, Ve
     let mut labels = vec![0usize; num_samples];
     let mut rng = rand::thread_rng();
 
-    for i in 0..num_samples {
+    for (i, label) in labels.iter_mut().enumerate().take(num_samples) {
         let digit = i % 10;
-        labels[i] = digit;
+        *label = digit;
         let base_bitmap = &DIGIT_BITMAPS[digit];
         let img_offset = i * 64;
 
@@ -438,8 +438,8 @@ pub fn standardize(features: &RawTensor) -> (RawTensor, Vec<f32>, Vec<f32>) {
             mean[col] += slice[row * d + col];
         }
     }
-    for col in 0..d {
-        mean[col] /= n;
+    for m in mean.iter_mut().take(d) {
+        *m /= n;
     }
 
     for row in 0..shape[0] {
@@ -448,8 +448,8 @@ pub fn standardize(features: &RawTensor) -> (RawTensor, Vec<f32>, Vec<f32>) {
             std[col] += diff * diff;
         }
     }
-    for col in 0..d {
-        std[col] = (std[col] / n).sqrt().max(1e-7);
+    for s in std.iter_mut().take(d) {
+        *s = (*s / n).sqrt().max(1e-7);
     }
 
     let mut out_data = vec![0.0f32; shape[0] * d];

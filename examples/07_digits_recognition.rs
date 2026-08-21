@@ -148,7 +148,7 @@ fn main() -> Result<()> {
         let mut total_loss = 0.0;
         let mut batches = 0;
 
-        while let Some((batch_x, batch_y)) = loader.next() {
+        for (batch_x, batch_y) in &mut loader {
             let b_labels: Vec<usize> = batch_y
                 .data()
                 .as_slice()
