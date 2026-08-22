@@ -41,6 +41,11 @@ An efficient, pure-Rust deep learning engine built from scratch with zero C/BLAS
   - Zero-copy HuggingFace standard **SafeTensors** format (`save_safetensors`, `load_safetensors`).
   - Serde **JSON** and binary **Bincode** model & optimizer checkpointing (`Checkpoint`).
 
+- **Byte-Level BPE Tokenizer (`tokenizer`)**:
+  - Pure-Rust Byte-Level Byte-Pair Encoding (BPE) with 100% UTF-8 coverage and zero out-of-vocabulary errors.
+  - Word/whitespace pre-tokenization boundary preservation and configurable special tokens (`<s>`, `</s>`, `<unk>`, `<pad>`).
+  - JSON serialization and deserialization (`save_json`, `load_json`).
+
 - **Mathematical Verification (`utils`)**:
   - Automated central finite-difference gradient checker (`gradcheck`) testing analytical backward gradients to $< 10^{-3}$ relative error tolerance.
 
@@ -237,6 +242,11 @@ cargo test
 10. **Vision Transformer (ViT) on 32x32 RGB CIFAR-100 (Patch Embedding + Multi-Head Attention)**:
     ```bash
     cargo run --release --example 10_cifar100_vit
+    ```
+
+11. **Byte-Level BPE Tokenizer + LLaMA 2 Language Model on TinyStories**:
+    ```bash
+    cargo run --release --example 11_llama_bpe_training
     ```
 
 ### Run Benchmarks

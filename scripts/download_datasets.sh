@@ -59,13 +59,20 @@ fi
 echo "  -> Saved CIFAR-10 binary batches in data/cifar-10-batches-bin/"
 
 # 5. CIFAR-100 Binary Dataset (60,000 3x32x32 color images across 100 classes)
-echo "[5/5] Downloading CIFAR-100 Dataset..."
+echo "[5/6] Downloading CIFAR-100 Dataset..."
 if [ ! -d "${DATA_DIR}/cifar-100-binary" ]; then
     fetch "https://www.cs.toronto.edu/~kriz/cifar-100-binary.tar.gz" "${DATA_DIR}/cifar-100-binary.tar.gz"
     tar -xzf "${DATA_DIR}/cifar-100-binary.tar.gz" -C "${DATA_DIR}"
     rm -f "${DATA_DIR}/cifar-100-binary.tar.gz"
 fi
 echo "  -> Saved CIFAR-100 binary batches in data/cifar-100-binary/"
+
+# 6. TinyStories Language Dataset (~19MB plain text stories)
+echo "[6/6] Downloading TinyStories Dataset..."
+if [ ! -f "${DATA_DIR}/tinystories.txt" ]; then
+    fetch "https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/TinyStories-valid.txt" "${DATA_DIR}/tinystories.txt"
+fi
+echo "  -> Saved TinyStories text in data/tinystories.txt"
 
 echo ""
 echo "All datasets downloaded and unpacked successfully in ${DATA_DIR}/!"

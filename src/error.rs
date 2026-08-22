@@ -41,6 +41,9 @@ pub enum EngineError {
     #[error("Invalid configuration or argument: {0}")]
     InvalidArgument(String),
 
+    #[error("Tokenizer error: {0}")]
+    TokenizerError(String),
+
     #[error("Tensor is not contiguous in memory")]
     NonContiguousTensor,
 }

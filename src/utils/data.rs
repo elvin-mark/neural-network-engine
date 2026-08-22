@@ -1092,6 +1092,62 @@ pub fn standardize(features: &RawTensor) -> (RawTensor, Vec<f32>, Vec<f32>) {
     (RawTensor::from_vec(out_data, shape.to_vec()), mean, std)
 }
 
+/// Loads the TinyStories dataset from disk (e.g. `data/tinystories.txt`),
+/// or falls back to generating a synthetic story collection if the file is absent.
+pub fn load_tinystories_dataset(max_chars: Option<usize>) -> String {
+    let candidate_paths = [
+        "data/tinystories.txt",
+        "../data/tinystories.txt",
+        "tinystories.txt",
+    ];
+    for path in &candidate_paths {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            let trimmed = content.trim();
+            if !trimmed.is_empty() {
+                if let Some(limit) = max_chars {
+                    return trimmed.chars().take(limit).collect();
+                }
+                return trimmed.to_string();
+            }
+        }
+    }
+
+    generate_tinystories_dataset(max_chars)
+}
+
+/// Generates a rich synthetic TinyStories corpus containing child-friendly narrative stories.
+pub fn generate_tinystories_dataset(max_chars: Option<usize>) -> String {
+    let stories = [
+        "Once upon a time, there was a little girl named Lily. Lily loved to explore the bright garden behind her house. One sunny morning, Lily saw a tiny blue bird sitting on a wooden fence. The bird was singing a cheerful song. Lily smiled and waved at the bird. \"Hello, little bird!\" she said softly. The bird chirped happily and flew down to the green grass. Lily shared some breadcrumbs with her new feathery friend. From that day on, the bird visited Lily every single morning.",
+        "Tim was a playful boy who had a big fluffy dog named Barnaby. Barnaby loved chasing red balls in the park. One afternoon, Tim threw the ball very high into the clear blue sky. The ball bounced under a large oak tree. Barnaby ran quickly, wagging his tail with pure joy. He gently picked up the ball and brought it back to Tim. Tim patted Barnaby on the head and gave him a crunchy treat. They walked home together, happy and tired.",
+        "Mia and her brother Leo decided to build a grand sandcastle on the sandy beach. They gathered wet sand in their colorful plastic buckets and shaped tall towers. Leo found smooth white seashells to decorate the castle walls. Mia placed a small green leaf at the very top as a royal flag. \"Look at our magnificent castle!\" shouted Leo. Suddenly, a gentle wave washed over the shore and touched their feet. They laughed and started building another even bigger castle together.",
+        "In a cozy green forest, a curious little squirrel named Sammy was searching for sweet acorns. Winter was coming soon, and Sammy wanted to prepare a warm nest. While hopping from branch to branch, Sammy found a shiny silver key near a hollow tree. He wondered what the key could open. He took the key to Oliver the wise old owl. Oliver smiled wisely and said, \"This key opens the secret door to the library of the forest.\" Sammy was thrilled to discover endless stories.",
+        "Emma loved painting colorful pictures of stars, rainbows, and friendly dragons. Her favorite color was bright yellow because it reminded her of warm sunshine. One rainy day, Emma could not play outside. She sat by the window with her wooden easel and painted a giant golden sun. Her mother walked into the room and gasped with delight. \"Your painting brought the sunshine right inside our home!\" her mother said with a warm hug.",
+        "A little red robot named Beep lived in a quiet workshop on the hill. Beep liked helping everyone fix their broken toys. One day, a crying boy came to the workshop holding a broken toy train. Beep carefully tightened the small gears and polished the wheels. The train started rolling smoothly again, making a cheerful whistle sound. The boy clapped his hands with excitement. Beep's little heart light glowed bright green with happiness.",
+        "Daisy the duckling was learning how to swim across the calm pond. At first, the water felt cold and scary. Her mother quacked encouragingly, \"You can do it, Daisy! Just paddle your little feet.\" Daisy took a deep breath, flapped her wings, and jumped into the cool water. To her amazement, she was floating! Daisy paddled across the pond to her brothers and sisters, proud of her brave adventure.",
+        "Max had a magical garden where vegetables grew unusually big. There were giant orange carrots, round red tomatoes, and purple eggplants that shimmered in the moonlight. Max took care of each plant with fresh water and kind words. When harvest day arrived, Max shared his enormous vegetables with all his neighbors in the village. Everyone gathered for a joyful feast under the sparkling evening stars.",
+    ];
+
+    let mut full_text = String::new();
+    let mut repeat = 0;
+    while full_text.len() < max_chars.unwrap_or(30_000) {
+        for story in &stories {
+            full_text.push_str(story);
+            full_text.push_str("\n\n");
+        }
+        repeat += 1;
+        if repeat > 20 {
+            break;
+        }
+    }
+
+    if let Some(limit) = max_chars {
+        full_text.chars().take(limit).collect()
+    } else {
+        full_text
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1164,5 +1220,12 @@ mod tests {
         for &l in &y {
             assert!(l < 100);
         }
+    }
+
+    #[test]
+    fn test_tinystories_dataset_loader() {
+        let text = load_tinystories_dataset(Some(500));
+        assert!(text.len() <= 500);
+        assert!(text.contains("Lily") || text.contains("Once upon a time"));
     }
 }

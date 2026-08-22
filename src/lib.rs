@@ -16,11 +16,13 @@ pub mod io;
 pub mod nn;
 pub mod optim;
 pub mod tensor;
+pub mod tokenizer;
 pub mod utils;
 
 pub use autograd::{is_grad_enabled, no_grad, set_grad_enabled, NoGradGuard, Tensor};
 pub use error::{EngineError, Result};
 pub use tensor::RawTensor;
+pub use tokenizer::ByteLevelBPE;
 
 /// Commonly used imports grouped for convenience.
 pub mod prelude {
@@ -37,12 +39,14 @@ pub mod prelude {
     pub use crate::optim::{Adam, RMSprop, SGD};
     pub use crate::tensor::conv::Conv2dParams;
     pub use crate::tensor::RawTensor;
+    pub use crate::tokenizer::ByteLevelBPE;
     pub use crate::utils::{
         generate_cifar100_dataset, generate_cifar10_dataset, generate_digits_dataset,
-        generate_mnist_dataset, generate_spiral_dataset, generate_xor_dataset, gradcheck,
-        load_cifar100_dataset, load_cifar100_from_binary, load_cifar10_dataset,
-        load_cifar10_from_binary, load_digits_dataset, load_digits_from_csv, load_iris_dataset,
-        load_iris_from_csv, load_mnist_dataset, load_mnist_from_idx, standardize, train_test_split,
-        DataLoader, TensorDataset, CIFAR10_CLASSES,
+        generate_mnist_dataset, generate_spiral_dataset, generate_tinystories_dataset,
+        generate_xor_dataset, gradcheck, load_cifar100_dataset, load_cifar100_from_binary,
+        load_cifar10_dataset, load_cifar10_from_binary, load_digits_dataset, load_digits_from_csv,
+        load_iris_dataset, load_iris_from_csv, load_mnist_dataset, load_mnist_from_idx,
+        load_tinystories_dataset, standardize, train_test_split, DataLoader, TensorDataset,
+        CIFAR10_CLASSES,
     };
 }

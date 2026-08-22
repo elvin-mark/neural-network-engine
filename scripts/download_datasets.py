@@ -67,6 +67,12 @@ DATASETS = [
         "CIFAR-100 Binary Batches (60,000 3x32x32 RGB images across 100 classes)",
         "tar",
     ),
+    (
+        "tinystories.txt",
+        "https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/TinyStories-valid.txt",
+        "TinyStories Corpus (19MB plain text stories)",
+        "raw",
+    ),
 ]
 
 

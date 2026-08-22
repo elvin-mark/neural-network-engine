@@ -68,6 +68,11 @@ path = "examples/09_cifar100_convnet.rs"
 name = "10_cifar100_vit"
 path = "examples/10_cifar100_vit.rs"
 
+[[example]]
+name = "11_llama_bpe_training"
+path = "examples/11_llama_bpe_training.rs"
+
+
 
 
 
