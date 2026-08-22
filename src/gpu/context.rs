@@ -20,21 +20,41 @@ impl GpuContext {
             ..Default::default()
         });
 
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-        }))
-        .or_else(|| {
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::LowPower,
-                compatible_surface: None,
-                force_fallback_adapter: true,
-            }))
-        })
-        .ok_or_else(|| {
-            EngineError::GpuError("Failed to find a compatible GPU adapter for WebGPU".to_string())
-        })?;
+        let mut adapters = instance.enumerate_adapters(wgpu::Backends::all());
+
+        // 1. Prioritize Discrete GPU (e.g. NVIDIA RTX/Tesla/A100, AMD dGPU)
+        // 2. Then Integrated GPU (e.g. AMD Radeon, Intel Iris, Apple Silicon)
+        // 3. Fall back to standard request_adapter / software fallback
+        let adapter = adapters
+            .iter()
+            .position(|a| a.get_info().device_type == wgpu::DeviceType::DiscreteGpu)
+            .map(|pos| adapters.remove(pos))
+            .or_else(|| {
+                adapters
+                    .iter()
+                    .position(|a| a.get_info().device_type == wgpu::DeviceType::IntegratedGpu)
+                    .map(|pos| adapters.remove(pos))
+            })
+            .or_else(|| adapters.into_iter().next())
+            .or_else(|| {
+                pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::HighPerformance,
+                    compatible_surface: None,
+                    force_fallback_adapter: false,
+                }))
+            })
+            .or_else(|| {
+                pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::LowPower,
+                    compatible_surface: None,
+                    force_fallback_adapter: true,
+                }))
+            })
+            .ok_or_else(|| {
+                EngineError::GpuError(
+                    "Failed to find a compatible GPU adapter for WebGPU".to_string(),
+                )
+            })?;
 
         let adapter_info = adapter.get_info();
 
