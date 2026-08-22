@@ -72,6 +72,10 @@ path = "examples/10_cifar100_vit.rs"
 name = "11_llama_bpe_training"
 path = "examples/11_llama_bpe_training.rs"
 
+[[example]]
+name = "12_whisper_speech_recognition"
+path = "examples/12_whisper_speech_recognition.rs"
+
 
 
 

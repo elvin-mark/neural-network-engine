@@ -46,6 +46,11 @@ An efficient, pure-Rust deep learning engine built from scratch with zero C/BLAS
   - Word/whitespace pre-tokenization boundary preservation and configurable special tokens (`<s>`, `</s>`, `<unk>`, `<pad>`).
   - JSON serialization and deserialization (`save_json`, `load_json`).
 
+- **Audio Processing & Speech Recognition (`nn::whisper`, `utils::audio`)**:
+  - **OpenAI Whisper Architecture**: 1D Conv audio downsampling, bidirectional Transformer encoder, and Transformer decoder with causal self-attention and cross-attention.
+  - **Audio Frontend**: Triangular Mel filterbanks and STFT Log-Mel Spectrogram computation from raw audio waveforms.
+  - **Autoregressive Decoding**: Greedy and sampling-based speech-to-text transcription.
+
 - **Mathematical Verification (`utils`)**:
   - Automated central finite-difference gradient checker (`gradcheck`) testing analytical backward gradients to $< 10^{-3}$ relative error tolerance.
 
@@ -247,6 +252,11 @@ cargo test
 11. **Byte-Level BPE Tokenizer + LLaMA 2 Language Model on TinyStories**:
     ```bash
     cargo run --release --example 11_llama_bpe_training
+    ```
+
+12. **Whisper Sequence-to-Sequence Speech Recognition on Spoken Audio**:
+    ```bash
+    cargo run --release --example 12_whisper_speech_recognition
     ```
 
 ### Run Benchmarks

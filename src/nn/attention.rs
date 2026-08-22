@@ -99,6 +99,63 @@ impl MultiHeadAttention {
         // 8. Output linear projection
         self.out_proj.forward(&context)
     }
+
+    /// Computes multi-head cross-attention where queries come from `x` [B, T_q, C]
+    /// and keys/values come from `memory` [B, T_kv, C].
+    pub fn forward_cross_attention(&self, x: &Tensor, memory: &Tensor) -> Result<Tensor> {
+        let x_shape = x.shape();
+        let mem_shape = memory.shape();
+
+        if x_shape.len() != 3 || mem_shape.len() != 3 {
+            return Err(EngineError::IncompatibleShapes {
+                op: "MultiHeadAttention cross-attention (expected 3D query [B, T_q, C] and 3D memory [B, T_kv, C])",
+                shapes: vec![x_shape, mem_shape],
+            });
+        }
+
+        if x_shape[0] != mem_shape[0] || x_shape[2] != mem_shape[2] {
+            return Err(EngineError::IncompatibleShapes {
+                op: "MultiHeadAttention cross-attention (batch size and channel dim must match)",
+                shapes: vec![x_shape, mem_shape],
+            });
+        }
+
+        let b = x_shape[0];
+        let t_q = x_shape[1];
+        let t_kv = mem_shape[1];
+        let c = x_shape[2];
+        let h = self.num_heads;
+        let d = self.head_dim;
+
+        // 1. Project Q from x, K and V from memory -> [B, T, C]
+        let q = self.q_proj.forward(x)?;
+        let k = self.k_proj.forward(memory)?;
+        let v = self.v_proj.forward(memory)?;
+
+        // 2. Reshape & transpose: Q -> [B, H, T_q, D], K, V -> [B, H, T_kv, D]
+        let q = q.reshape(&[b, t_q, h, d])?.transpose(1, 2)?;
+        let k = k.reshape(&[b, t_kv, h, d])?.transpose(1, 2)?;
+        let v = v.reshape(&[b, t_kv, h, d])?.transpose(1, 2)?;
+
+        // 3. Attention scores = Q * K^T / sqrt(D) -> [B, H, T_q, T_kv]
+        let k_t = k.transpose(2, 3)?;
+        let scores = q.matmul(&k_t)?;
+        let scale = 1.0 / (d as f32).sqrt();
+        let scale_tensor = Tensor::scalar(scale, false);
+        let scaled_scores = scores.mul(&scale_tensor)?;
+
+        // 4. Softmax along key dimension -> Attention weights [B, H, T_q, T_kv]
+        let attn_weights = scaled_scores.softmax(3)?;
+
+        // 5. Context = Weights * V -> [B, H, T_q, D]
+        let context = attn_weights.matmul(&v)?;
+
+        // 6. Transpose & reshape back to [B, T_q, C]
+        let context = context.transpose(1, 2)?.reshape(&[b, t_q, c])?;
+
+        // 7. Output linear projection
+        self.out_proj.forward(&context)
+    }
 }
 
 impl Module for MultiHeadAttention {

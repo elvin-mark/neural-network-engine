@@ -34,19 +34,21 @@ pub mod prelude {
         GroupedQueryAttention, L1Loss, LayerNorm, LeakyReLU, Linear, Llama2Block, Llama2LM,
         LlamaConfig, MSELoss, MaxPool2d, Module, MultiHeadAttention, RMSNorm, ReLU,
         RotaryEmbedding, Sequential, SiLU, Sigmoid, Softmax, SwiGLU, Tanh, TransformerBlock,
-        TransformerLM, ViTConfig, VisionTransformer, GELU,
+        TransformerLM, ViTConfig, VisionTransformer, Whisper, WhisperConfig, GELU,
     };
     pub use crate::optim::{Adam, RMSprop, SGD};
     pub use crate::tensor::conv::Conv2dParams;
     pub use crate::tensor::RawTensor;
     pub use crate::tokenizer::ByteLevelBPE;
     pub use crate::utils::{
-        generate_cifar100_dataset, generate_cifar10_dataset, generate_digits_dataset,
-        generate_mnist_dataset, generate_spiral_dataset, generate_tinystories_dataset,
-        generate_xor_dataset, gradcheck, load_cifar100_dataset, load_cifar100_from_binary,
-        load_cifar10_dataset, load_cifar10_from_binary, load_digits_dataset, load_digits_from_csv,
-        load_iris_dataset, load_iris_from_csv, load_mnist_dataset, load_mnist_from_idx,
-        load_tinystories_dataset, standardize, train_test_split, DataLoader, TensorDataset,
-        CIFAR10_CLASSES,
+        compute_log_mel_spectrogram, create_mel_filterbank, generate_cifar100_dataset,
+        generate_cifar10_dataset, generate_digits_dataset, generate_mnist_dataset,
+        generate_spiral_dataset, generate_spoken_dataset, generate_tinystories_dataset,
+        generate_xor_dataset, gradcheck, hz_to_mel, load_cifar100_dataset,
+        load_cifar100_from_binary, load_cifar10_dataset, load_cifar10_from_binary,
+        load_digits_dataset, load_digits_from_csv, load_iris_dataset, load_iris_from_csv,
+        load_mnist_dataset, load_mnist_from_idx, load_spoken_dataset, load_tinystories_dataset,
+        mel_to_hz, standardize, synthesize_spoken_word, train_test_split, DataLoader,
+        TensorDataset, CIFAR10_CLASSES, SPOKEN_CLASSES,
     };
 }

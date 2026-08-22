@@ -14,6 +14,7 @@ pub mod pooling;
 pub mod sequential;
 pub mod transformer;
 pub mod vit;
+pub mod whisper;
 
 pub use activations::{LeakyReLU, ReLU, SiLU, Sigmoid, Softmax, Tanh, GELU};
 pub use attention::MultiHeadAttention;
@@ -31,3 +32,4 @@ pub use pooling::MaxPool2d;
 pub use sequential::Sequential;
 pub use transformer::{TransformerBlock, TransformerLM};
 pub use vit::{ViTConfig, VisionTransformer};
+pub use whisper::{Whisper, WhisperConfig, WhisperDecoder, WhisperEncoder};
