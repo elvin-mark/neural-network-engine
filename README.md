@@ -283,6 +283,21 @@ cargo test
 cargo bench
 ```
 
+### Build 100% Pure Static Binaries (Zero Dynamic Dependencies)
+To produce a completely self-contained binary with **zero `.so` dependencies** (e.g. for `FROM scratch` Docker containers or Alpine Linux):
+
+```bash
+# 1. Add musl target
+rustup target add x86_64-unknown-linux-musl
+
+# 2. Build statically linked release binary
+cargo build --release --target x86_64-unknown-linux-musl --example 13_bert_qa_embeddings
+
+# 3. Verify static linkage (0 shared libraries linked)
+file target/x86_64-unknown-linux-musl/release/examples/13_bert_qa_embeddings
+# Output: ELF 64-bit LSB pie executable, x86-64, statically linked
+```
+
 ---
 
 ## License
