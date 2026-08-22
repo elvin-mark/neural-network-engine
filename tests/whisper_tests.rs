@@ -61,6 +61,7 @@ fn test_whisper_error_handling_on_invalid_inputs() {
 
 #[test]
 fn test_whisper_audio_pipeline_and_transcription() {
+    let tokenizer = ByteLevelBPE::with_special_tokens(&["<unk>", "<s>", "</s>", "<pad>"]);
     let config = WhisperConfig {
         n_mels: 32,
         d_model: 32,
@@ -69,12 +70,11 @@ fn test_whisper_audio_pipeline_and_transcription() {
         encoder_heads: 2,
         decoder_heads: 2,
         d_ff: 64,
-        vocab_size: 270,
+        vocab_size: tokenizer.vocab_size(),
         max_source_positions: 64,
         max_target_positions: 32,
     };
     let model = Whisper::new(config);
-    let tokenizer = ByteLevelBPE::with_special_tokens(&["<unk>", "<s>", "</s>", "<pad>"]);
 
     let waveform = synthesize_spoken_word(0, 0.2, 8000);
     let mel = compute_log_mel_spectrogram(&waveform, 8000, 128, 32, 32);

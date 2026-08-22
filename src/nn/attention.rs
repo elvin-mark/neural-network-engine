@@ -7,6 +7,7 @@ use crate::nn::module::Module;
 use crate::tensor::RawTensor;
 
 /// Multi-Head Attention module supporting optional causal autoregressive masking.
+#[derive(Clone)]
 pub struct MultiHeadAttention {
     pub q_proj: Linear,
     pub k_proj: Linear,

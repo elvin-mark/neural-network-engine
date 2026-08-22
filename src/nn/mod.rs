@@ -2,6 +2,7 @@
 
 pub mod activations;
 pub mod attention;
+pub mod bert;
 pub mod conv;
 pub mod dropout;
 pub mod embedding;
@@ -18,6 +19,10 @@ pub mod whisper;
 
 pub use activations::{LeakyReLU, ReLU, SiLU, Sigmoid, Softmax, Tanh, GELU};
 pub use attention::MultiHeadAttention;
+pub use bert::{
+    BertConfig, BertEmbeddings, BertEncoder, BertForQuestionAnswering, BertForSequenceEmbedding,
+    BertLayer, BertModel, BertPooler,
+};
 pub use conv::Conv2d;
 pub use dropout::Dropout;
 pub use embedding::Embedding;

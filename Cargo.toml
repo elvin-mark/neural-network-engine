@@ -76,6 +76,11 @@ path = "examples/11_llama_bpe_training.rs"
 name = "12_whisper_speech_recognition"
 path = "examples/12_whisper_speech_recognition.rs"
 
+[[example]]
+name = "13_bert_qa_embeddings"
+path = "examples/13_bert_qa_embeddings.rs"
+
+
 
 
 

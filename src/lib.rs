@@ -30,11 +30,13 @@ pub mod prelude {
     pub use crate::error::{EngineError, Result};
     pub use crate::io::{load_safetensors, save_safetensors, Checkpoint};
     pub use crate::nn::{
-        BCEWithLogitsLoss, BatchNorm1d, Conv2d, CrossEntropyLoss, Dropout, Embedding,
-        GroupedQueryAttention, L1Loss, LayerNorm, LeakyReLU, Linear, Llama2Block, Llama2LM,
-        LlamaConfig, MSELoss, MaxPool2d, Module, MultiHeadAttention, RMSNorm, ReLU,
-        RotaryEmbedding, Sequential, SiLU, Sigmoid, Softmax, SwiGLU, Tanh, TransformerBlock,
-        TransformerLM, ViTConfig, VisionTransformer, Whisper, WhisperConfig, GELU,
+        BCEWithLogitsLoss, BatchNorm1d, BertConfig, BertEmbeddings, BertEncoder,
+        BertForQuestionAnswering, BertForSequenceEmbedding, BertLayer, BertModel, BertPooler,
+        Conv2d, CrossEntropyLoss, Dropout, Embedding, GroupedQueryAttention, L1Loss, LayerNorm,
+        LeakyReLU, Linear, Llama2Block, Llama2LM, LlamaConfig, MSELoss, MaxPool2d, Module,
+        MultiHeadAttention, RMSNorm, ReLU, RotaryEmbedding, Sequential, SiLU, Sigmoid, Softmax,
+        SwiGLU, Tanh, TransformerBlock, TransformerLM, ViTConfig, VisionTransformer, Whisper,
+        WhisperConfig, GELU,
     };
     pub use crate::optim::{Adam, RMSprop, SGD};
     pub use crate::tensor::conv::Conv2dParams;
@@ -43,12 +45,12 @@ pub mod prelude {
     pub use crate::utils::{
         compute_log_mel_spectrogram, create_mel_filterbank, generate_cifar100_dataset,
         generate_cifar10_dataset, generate_digits_dataset, generate_mnist_dataset,
-        generate_spiral_dataset, generate_spoken_dataset, generate_tinystories_dataset,
-        generate_xor_dataset, gradcheck, hz_to_mel, load_cifar100_dataset,
-        load_cifar100_from_binary, load_cifar10_dataset, load_cifar10_from_binary,
-        load_digits_dataset, load_digits_from_csv, load_iris_dataset, load_iris_from_csv,
-        load_mnist_dataset, load_mnist_from_idx, load_spoken_dataset, load_tinystories_dataset,
-        mel_to_hz, standardize, synthesize_spoken_word, train_test_split, DataLoader,
-        TensorDataset, CIFAR10_CLASSES, SPOKEN_CLASSES,
+        generate_qa_dataset, generate_semantic_similarity_dataset, generate_spiral_dataset,
+        generate_spoken_dataset, generate_tinystories_dataset, generate_xor_dataset, gradcheck,
+        hz_to_mel, load_cifar100_dataset, load_cifar100_from_binary, load_cifar10_dataset,
+        load_cifar10_from_binary, load_digits_dataset, load_digits_from_csv, load_iris_dataset,
+        load_iris_from_csv, load_mnist_dataset, load_mnist_from_idx, load_spoken_dataset,
+        load_tinystories_dataset, mel_to_hz, standardize, synthesize_spoken_word, train_test_split,
+        DataLoader, QASample, TensorDataset, CIFAR10_CLASSES, SPOKEN_CLASSES,
     };
 }

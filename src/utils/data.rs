@@ -1148,6 +1148,126 @@ pub fn generate_tinystories_dataset(max_chars: Option<usize>) -> String {
     }
 }
 
+/// A Question Answering sample containing the question, context paragraph, and answer text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QASample {
+    pub question: String,
+    pub context: String,
+    pub answer: String,
+}
+
+/// Generates a structured multi-domain Extractive Question Answering dataset.
+pub fn generate_qa_dataset() -> Vec<QASample> {
+    vec![
+        QASample {
+            question: "What is Rust?".to_string(),
+            context: "Rust is a systems programming language that focuses on safety and performance.".to_string(),
+            answer: "a systems programming language".to_string(),
+        },
+        QASample {
+            question: "What does Autograd provide?".to_string(),
+            context: "Autograd provides reverse-mode automatic differentiation for neural networks.".to_string(),
+            answer: "reverse-mode automatic differentiation".to_string(),
+        },
+        QASample {
+            question: "Who developed the transformer architecture?".to_string(),
+            context: "The transformer architecture was introduced by Vaswani and colleagues in 2017.".to_string(),
+            answer: "Vaswani and colleagues".to_string(),
+        },
+        QASample {
+            question: "What is the primary feature of BERT?".to_string(),
+            context: "BERT uses bidirectional transformer encoders to learn deep contextual representations.".to_string(),
+            answer: "bidirectional transformer encoders".to_string(),
+        },
+        QASample {
+            question: "What is GELU?".to_string(),
+            context: "GELU is a smooth nonlinear activation function widely used in modern transformers.".to_string(),
+            answer: "a smooth nonlinear activation function".to_string(),
+        },
+        QASample {
+            question: "What optimizer uses adaptive learning rates?".to_string(),
+            context: "Adam computes adaptive learning rates for each parameter using first and second moments.".to_string(),
+            answer: "Adam".to_string(),
+        },
+        QASample {
+            question: "What does SafeTensors ensure?".to_string(),
+            context: "SafeTensors is a secure and fast serialization format for deep learning tensor weights.".to_string(),
+            answer: "a secure and fast serialization format".to_string(),
+        },
+        QASample {
+            question: "What is Whisper designed for?".to_string(),
+            context: "Whisper is an encoder-decoder sequence-to-sequence model designed for speech recognition.".to_string(),
+            answer: "an encoder-decoder sequence-to-sequence model".to_string(),
+        },
+        QASample {
+            question: "Where do neural network weights reside?".to_string(),
+            context: "Neural network weights are stored inside dense linear and convolutional layers.".to_string(),
+            answer: "inside dense linear and convolutional layers".to_string(),
+        },
+        QASample {
+            question: "How does backpropagation work?".to_string(),
+            context: "Backpropagation applies the mathematical chain rule backwards through the computational DAG.".to_string(),
+            answer: "the mathematical chain rule".to_string(),
+        },
+        QASample {
+            question: "What is LayerNorm?".to_string(),
+            context: "LayerNorm normalizes features across the hidden dimension with learnable scale and shift parameters.".to_string(),
+            answer: "normalizes features across the hidden dimension".to_string(),
+        },
+        QASample {
+            question: "What does cross-attention connect?".to_string(),
+            context: "Cross-attention connects queries from the decoder to key and value states from the encoder.".to_string(),
+            answer: "queries from the decoder to key and value states from the encoder".to_string(),
+        },
+    ]
+}
+
+/// Generates paired sentences with semantic similarity labels (1.0 for related/paraphrase, 0.0 for unrelated).
+pub fn generate_semantic_similarity_dataset() -> Vec<(String, String, f32)> {
+    vec![
+        (
+            "Rust is a fast systems programming language.".to_string(),
+            "Rust provides high performance and memory safety.".to_string(),
+            1.0,
+        ),
+        (
+            "BERT uses bidirectional self-attention.".to_string(),
+            "BERT learns contextual representations from both directions.".to_string(),
+            1.0,
+        ),
+        (
+            "Neural networks learn through gradient descent.".to_string(),
+            "Optimizers update model parameters using backpropagated gradients.".to_string(),
+            1.0,
+        ),
+        (
+            "Whisper performs speech-to-text recognition.".to_string(),
+            "Whisper transcribes acoustic audio into text sentences.".to_string(),
+            1.0,
+        ),
+        (
+            "Apples and oranges are sweet fruits.".to_string(),
+            "Quantum computers process qubits using superposition.".to_string(),
+            0.0,
+        ),
+        (
+            "The dog ran across the sunny park.".to_string(),
+            "Matrix multiplication is a fundamental linear algebra operation.".to_string(),
+            0.0,
+        ),
+        (
+            "Deep learning models require training datasets.".to_string(),
+            "Astronomers study distant galaxies and black holes.".to_string(),
+            0.0,
+        ),
+        (
+            "Convolutional layers extract local spatial features.".to_string(),
+            "Conv2d filters scan image pixels to detect visual patterns.".to_string(),
+            1.0,
+        ),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1227,5 +1347,17 @@ mod tests {
         let text = load_tinystories_dataset(Some(500));
         assert!(text.len() <= 500);
         assert!(text.contains("Lily") || text.contains("Once upon a time"));
+    }
+
+    #[test]
+    fn test_qa_dataset_generator() {
+        let qa = generate_qa_dataset();
+        assert!(!qa.is_empty());
+        for sample in &qa {
+            assert!(sample.context.contains(&sample.answer));
+        }
+
+        let sim = generate_semantic_similarity_dataset();
+        assert!(!sim.is_empty());
     }
 }

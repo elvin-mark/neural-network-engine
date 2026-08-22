@@ -51,6 +51,10 @@ An efficient, pure-Rust deep learning engine built from scratch with zero C/BLAS
   - **Audio Frontend**: Triangular Mel filterbanks and STFT Log-Mel Spectrogram computation from raw audio waveforms.
   - **Autoregressive Decoding**: Greedy and sampling-based speech-to-text transcription.
 
+- **Bidirectional Transformers & Question Answering (`nn::bert`)**:
+  - **BERT Architecture**: Word + 1D Position + Segment/Token-Type Tri-Embeddings, bidirectional Multi-Head Self-Attention layers, and `[CLS]` sentence pooler.
+  - **Task Heads**: Span extraction head for Extractive Question Answering (`BertForQuestionAnswering`) and normalized sentence embedding head with cosine similarity ranking (`BertForSequenceEmbedding`).
+
 - **Mathematical Verification (`utils`)**:
   - Automated central finite-difference gradient checker (`gradcheck`) testing analytical backward gradients to $< 10^{-3}$ relative error tolerance.
 
@@ -257,6 +261,11 @@ cargo test
 12. **Whisper Sequence-to-Sequence Speech Recognition on Spoken Audio**:
     ```bash
     cargo run --release --example 12_whisper_speech_recognition
+    ```
+
+13. **BERT Extractive Question Answering & Semantic Text Embeddings**:
+    ```bash
+    cargo run --release --example 13_bert_qa_embeddings
     ```
 
 ### Run Benchmarks
