@@ -25,6 +25,13 @@ impl GpuContext {
             compatible_surface: None,
             force_fallback_adapter: false,
         }))
+        .or_else(|| {
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
+                compatible_surface: None,
+                force_fallback_adapter: true,
+            }))
+        })
         .ok_or_else(|| {
             EngineError::GpuError("Failed to find a compatible GPU adapter for WebGPU".to_string())
         })?;
