@@ -55,6 +55,11 @@ An efficient, pure-Rust deep learning engine built from scratch with zero C/BLAS
   - **BERT Architecture**: Word + 1D Position + Segment/Token-Type Tri-Embeddings, bidirectional Multi-Head Self-Attention layers, and `[CLS]` sentence pooler.
   - **Task Heads**: Span extraction head for Extractive Question Answering (`BertForQuestionAnswering`) and normalized sentence embedding head with cosine similarity ranking (`BertForSequenceEmbedding`).
 
+- **Hardware GPU Acceleration (`gpu`, `wgpu`)**:
+  - **WebGPU Compute Engine**: Pure-Rust GPU compute backend compiling WGSL shaders to Vulkan (Linux), Metal (macOS), and DirectX 12 (Windows).
+  - **GPU Primitives (`GpuTensor`)**: 16x16 shared-memory tiled GEMM, parallel elementwise arithmetic & activations, row-wise Softmax, and LayerNorm/RMSNorm reduction kernels in VRAM.
+  - **Zero-Copy Pipeline**: Model weights and activations execute 100% inside GPU VRAM with zero PCIe roundtrips during multi-layer forward passes.
+
 - **Mathematical Verification (`utils`)**:
   - Automated central finite-difference gradient checker (`gradcheck`) testing analytical backward gradients to $< 10^{-3}$ relative error tolerance.
 
@@ -266,6 +271,11 @@ cargo test
 13. **BERT Extractive Question Answering & Semantic Text Embeddings**:
     ```bash
     cargo run --release --example 13_bert_qa_embeddings
+    ```
+
+14. **Hardware WebGPU Compute Acceleration (Matrix Multiplication & Deep NN Forward Pass in VRAM)**:
+    ```bash
+    cargo run --release --features gpu --example 14_gpu_acceleration
     ```
 
 ### Run Benchmarks

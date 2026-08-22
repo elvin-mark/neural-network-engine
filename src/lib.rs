@@ -12,6 +12,8 @@
 
 pub mod autograd;
 pub mod error;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 pub mod io;
 pub mod nn;
 pub mod optim;
@@ -21,6 +23,8 @@ pub mod utils;
 
 pub use autograd::{is_grad_enabled, no_grad, set_grad_enabled, NoGradGuard, Tensor};
 pub use error::{EngineError, Result};
+#[cfg(feature = "gpu")]
+pub use gpu::{GpuContext, GpuLayerNorm, GpuLinear, GpuRMSNorm, GpuTensor, ToGpu};
 pub use tensor::RawTensor;
 pub use tokenizer::ByteLevelBPE;
 
@@ -28,6 +32,8 @@ pub use tokenizer::ByteLevelBPE;
 pub mod prelude {
     pub use crate::autograd::{is_grad_enabled, no_grad, set_grad_enabled, NoGradGuard, Tensor};
     pub use crate::error::{EngineError, Result};
+    #[cfg(feature = "gpu")]
+    pub use crate::gpu::{GpuContext, GpuLayerNorm, GpuLinear, GpuRMSNorm, GpuTensor, ToGpu};
     pub use crate::io::{load_safetensors, save_safetensors, Checkpoint};
     pub use crate::nn::{
         BCEWithLogitsLoss, BatchNorm1d, BertConfig, BertEmbeddings, BertEncoder,

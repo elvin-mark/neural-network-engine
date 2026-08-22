@@ -215,6 +215,15 @@ impl RawTensor {
         &mut self.storage.as_mut_slice()[off..off + len]
     }
 
+    #[cfg(feature = "gpu")]
+    /// Uploads this `RawTensor` to GPU VRAM as a `GpuTensor`.
+    pub fn to_gpu(
+        &self,
+        ctx: &std::sync::Arc<crate::gpu::GpuContext>,
+    ) -> Result<crate::gpu::GpuTensor> {
+        crate::gpu::GpuTensor::from_raw(self, ctx)
+    }
+
     /// Returns the single scalar value of a 0-d or 1-element tensor.
     pub fn item(&self) -> f32 {
         assert_eq!(
@@ -250,6 +259,11 @@ impl RawTensor {
     pub fn get(&self, indices: &[usize]) -> f32 {
         self.try_get(indices)
             .unwrap_or_else(|e| panic!("RawTensor::get failed: {}", e))
+    }
+
+    /// Performs matrix multiplication `C = A * B` on CPU.
+    pub fn matmul(&self, other: &RawTensor) -> Result<RawTensor> {
+        matmul::matmul(self, other)
     }
 
     /// Fallibly sets an element by multi-dimensional coordinates with full per-axis bounds checking.

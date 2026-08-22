@@ -44,6 +44,9 @@ pub enum EngineError {
     #[error("Tokenizer error: {0}")]
     TokenizerError(String),
 
+    #[error("GPU compute error: {0}")]
+    GpuError(String),
+
     #[error("Tensor is not contiguous in memory")]
     NonContiguousTensor,
 }
