@@ -193,8 +193,8 @@ impl GpuTensor {
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &bind_group, &[]);
-            let workgroups_x = (n as u32).div_ceil(16);
-            let workgroups_y = (m as u32).div_ceil(16);
+            let workgroups_x = (n as u32).div_ceil(64);
+            let workgroups_y = (m as u32).div_ceil(64);
             pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
 
