@@ -1,8 +1,9 @@
 //! Complete LLaMA 2 / LLaMA 3 architecture featuring Grouped-Query Attention (GQA),
-//! Rotary Position Embeddings (RoPE), RMSNorm, and SwiGLU Feed-Forward Networks.
+//! Rotary Position Embeddings (RoPE), RMSNorm, SwiGLU Feed-Forward Networks, and fast $O(N)$ KV-Cache.
 
 use crate::autograd::Tensor;
 use crate::error::{EngineError, Result};
+use crate::nn::kv_cache::KVCache;
 use crate::nn::linear::Linear;
 use crate::nn::module::Module;
 use crate::nn::norm::RMSNorm;
@@ -123,10 +124,9 @@ impl RotaryEmbedding {
 
         let half_d = d / 2;
 
-        // 1. Slice cos and sin for current positions -> [1, 1, T, D]
+        // 1. Slice cos and sin tables for [start_pos, start_pos + t)
         let cos_slice = self.cos_cached.slice(2, start_pos, end_pos)?;
         let sin_slice = self.sin_cached.slice(2, start_pos, end_pos)?;
-
         let cos = Tensor::new(cos_slice, false);
         let sin = Tensor::new(sin_slice, false);
 
@@ -143,7 +143,7 @@ impl RotaryEmbedding {
     }
 }
 
-/// Grouped-Query Attention (GQA) with RoPE and Causal Masking.
+/// Grouped-Query Attention (GQA) with RoPE, Causal Masking, and optional KV-Cache.
 pub struct GroupedQueryAttention {
     pub q_proj: Linear,
     pub k_proj: Linear,
@@ -186,7 +186,13 @@ impl GroupedQueryAttention {
         }
     }
 
-    pub fn forward_gqa(&self, x: &Tensor, start_pos: usize) -> Result<Tensor> {
+    /// Computes Grouped-Query Attention with optional Key-Value caching.
+    pub fn forward_gqa_cached(
+        &self,
+        x: &Tensor,
+        start_pos: usize,
+        cache: Option<&mut (Tensor, Tensor)>,
+    ) -> Result<Tensor> {
         let shape = x.shape();
         if shape.len() != 3 {
             return Err(EngineError::IncompatibleShapes {
@@ -214,43 +220,75 @@ impl GroupedQueryAttention {
         let q = self.rope.apply(&q, start_pos)?;
         let k = self.rope.apply(&k, start_pos)?;
 
-        // 3. Repeat KV heads for GQA if G > 1
-        let (k_exp, v_exp) = if g > 1 {
-            let zeros = Tensor::zeros(&[b, h_kv, g, t, d], false);
-            let k_rep = k.unsqueeze(2)?.add(&zeros)?.reshape(&[b, h_q, t, d])?;
-            let v_rep = v.unsqueeze(2)?.add(&zeros)?.reshape(&[b, h_q, t, d])?;
-            (k_rep, v_rep)
+        // 3. Update KV Cache if enabled
+        let (k_all, v_all) = if let Some(kv_slot) = cache {
+            if kv_slot.0.numel() > 0 {
+                let k_cat = Tensor::cat(&[&kv_slot.0, &k], 2)?;
+                let v_cat = Tensor::cat(&[&kv_slot.1, &v], 2)?;
+                *kv_slot = (k_cat.clone(), v_cat.clone());
+                (k_cat, v_cat)
+            } else {
+                *kv_slot = (k.clone(), v.clone());
+                (k, v)
+            }
         } else {
             (k, v)
         };
 
-        // 4. Attention scores: (Q * K^T) / sqrt(D) -> [B, H_q, T, T]
+        let total_seq_len = k_all.shape()[2];
+
+        // 4. Repeat KV heads for GQA if G > 1
+        let (k_exp, v_exp) = if g > 1 {
+            let zeros = Tensor::zeros(&[b, h_kv, g, total_seq_len, d], false);
+            let k_rep = k_all
+                .unsqueeze(2)?
+                .add(&zeros)?
+                .reshape(&[b, h_q, total_seq_len, d])?;
+            let v_rep = v_all
+                .unsqueeze(2)?
+                .add(&zeros)?
+                .reshape(&[b, h_q, total_seq_len, d])?;
+            (k_rep, v_rep)
+        } else {
+            (k_all, v_all)
+        };
+
+        // 5. Attention scores: (Q * K^T) / sqrt(D) -> [B, H_q, T, TotalSeqLen]
         let k_t = k_exp.transpose(2, 3)?;
         let scores = q.matmul(&k_t)?;
         let scale = 1.0 / (d as f32).sqrt();
         let mut scaled_scores = scores.mul_scalar(scale)?;
 
-        // 5. Causal autoregressive mask
+        // 6. Causal autoregressive mask for prefill / multi-token steps
         if t > 1 {
-            let mut mask_data = vec![0.0; t * t];
+            let mut mask_data = vec![0.0; t * total_seq_len];
             for r in 0..t {
-                for c in 0..t {
-                    if c > r {
-                        mask_data[r * t + c] = -1e4;
+                let pos_r = start_pos + r;
+                for c in 0..total_seq_len {
+                    if c > pos_r {
+                        mask_data[r * total_seq_len + c] = -1e4;
                     }
                 }
             }
-            let mask = Tensor::new(RawTensor::from_vec(mask_data, vec![1, 1, t, t]), false);
+            let mask = Tensor::new(
+                RawTensor::from_vec(mask_data, vec![1, 1, t, total_seq_len]),
+                false,
+            );
             scaled_scores = scaled_scores.add(&mask)?;
         }
 
-        // 6. Softmax & Context aggregation
+        // 7. Softmax & Context aggregation
         let weights = scaled_scores.softmax(3)?;
         let context = weights.matmul(&v_exp)?; // [B, H_q, T, D]
 
-        // 7. Merge heads and output projection
+        // 8. Merge heads and output projection
         let merged = context.transpose(1, 2)?.reshape(&[b, t, h_q * d])?;
         self.o_proj.forward(&merged)
+    }
+
+    /// Forward pass without caching.
+    pub fn forward_gqa(&self, x: &Tensor, start_pos: usize) -> Result<Tensor> {
+        self.forward_gqa_cached(x, start_pos, None)
     }
 }
 
@@ -321,16 +359,25 @@ impl Llama2Block {
         }
     }
 
-    pub fn forward_block(&self, x: &Tensor, start_pos: usize) -> Result<Tensor> {
+    pub fn forward_block_cached(
+        &self,
+        x: &Tensor,
+        start_pos: usize,
+        cache: Option<&mut (Tensor, Tensor)>,
+    ) -> Result<Tensor> {
         // 1. Attention with Pre-RMSNorm and Residual
         let norm_x = self.attn_norm.forward(x)?;
-        let h_attn = self.attn.forward_gqa(&norm_x, start_pos)?;
+        let h_attn = self.attn.forward_gqa_cached(&norm_x, start_pos, cache)?;
         let x = x.add(&h_attn)?;
 
         // 2. SwiGLU FFN with Pre-RMSNorm and Residual
         let norm_x2 = self.ffn_norm.forward(&x)?;
         let h_ffn = self.ffn.forward(&norm_x2)?;
         x.add(&h_ffn)
+    }
+
+    pub fn forward_block(&self, x: &Tensor, start_pos: usize) -> Result<Tensor> {
+        self.forward_block_cached(x, start_pos, None)
     }
 }
 
@@ -349,7 +396,7 @@ impl Module for Llama2Block {
     }
 }
 
-/// Complete LLaMA 2 Decoder-only Language Model with GQA, RoPE, RMSNorm, and SwiGLU.
+/// Complete LLaMA 2 Decoder-only Language Model with GQA, RoPE, RMSNorm, SwiGLU, and KV-Cache.
 pub struct Llama2LM {
     pub tok_embeddings: crate::nn::embedding::Embedding,
     pub layers: Vec<Llama2Block>,
@@ -374,13 +421,14 @@ impl Llama2LM {
         }
     }
 
-    /// Forward pass for batch of token indices [BatchSize, SeqLen].
-    pub fn forward_tokens(
+    /// Forward pass for batch of token indices with optional KV-cache.
+    pub fn forward_tokens_cached(
         &self,
         token_indices: &[usize],
         batch_size: usize,
         seq_len: usize,
         start_pos: usize,
+        mut kv_cache: Option<&mut KVCache>,
     ) -> Result<Tensor> {
         assert_eq!(
             token_indices.len(),
@@ -396,14 +444,78 @@ impl Llama2LM {
         let tok = self.tok_embeddings.forward_indices(token_indices)?;
         let mut x = tok.reshape(&[batch_size, seq_len, self.config.d_model])?;
 
-        // 2. Cascade through LLaMA 2 Transformer Blocks with RoPE
-        for layer in &self.layers {
-            x = layer.forward_block(&x, start_pos)?;
+        // 2. Cascade through LLaMA 2 Transformer Blocks with RoPE and KV-Cache
+        for (layer_idx, layer) in self.layers.iter().enumerate() {
+            let layer_slot = match kv_cache.as_deref_mut() {
+                Some(cache) => cache
+                    .layers
+                    .get_mut(layer_idx)
+                    .and_then(|slot| slot.as_mut()),
+                None => None,
+            };
+            x = layer.forward_block_cached(&x, start_pos, layer_slot)?;
         }
 
         // 3. Final RMSNorm & LM Head Logits -> [B, T, VocabSize]
         let x = self.norm.forward(&x)?;
         self.lm_head.forward(&x)
+    }
+
+    /// Forward pass without caching.
+    pub fn forward_tokens(
+        &self,
+        token_indices: &[usize],
+        batch_size: usize,
+        seq_len: usize,
+        start_pos: usize,
+    ) -> Result<Tensor> {
+        self.forward_tokens_cached(token_indices, batch_size, seq_len, start_pos, None)
+    }
+
+    /// Generates tokens autoregressively using KV-Cache for fast $O(N)$ inference.
+    pub fn generate_cached(
+        &self,
+        prompt_tokens: &[usize],
+        max_new_tokens: usize,
+        temperature: f32,
+    ) -> Result<Vec<usize>> {
+        assert!(!prompt_tokens.is_empty(), "prompt_tokens cannot be empty");
+        let mut tokens = prompt_tokens.to_vec();
+        let mut kv_cache = KVCache::new(self.layers.len());
+        // Initialize slots with empty tensors
+        for slot in &mut kv_cache.layers {
+            *slot = Some((Tensor::zeros(&[0], false), Tensor::zeros(&[0], false)));
+        }
+
+        // 1. Prefill prompt
+        let logits = self.forward_tokens_cached(
+            prompt_tokens,
+            1,
+            prompt_tokens.len(),
+            0,
+            Some(&mut kv_cache),
+        )?;
+        let last_logits = logits
+            .slice(1, prompt_tokens.len() - 1, prompt_tokens.len())?
+            .squeeze(1)?
+            .squeeze(0)?;
+        let mut next_token = sample_token_logits(&last_logits, temperature)?;
+        tokens.push(next_token);
+
+        // 2. Decode new tokens (1 token per step with cached attention keys & values)
+        for _ in 1..max_new_tokens {
+            if tokens.len() >= self.config.max_seq_len {
+                break;
+            }
+            let start_pos = tokens.len() - 1;
+            let logits =
+                self.forward_tokens_cached(&[next_token], 1, 1, start_pos, Some(&mut kv_cache))?;
+            let step_logits = logits.squeeze(1)?.squeeze(0)?;
+            next_token = sample_token_logits(&step_logits, temperature)?;
+            tokens.push(next_token);
+        }
+
+        Ok(tokens)
     }
 
     pub fn parameters(&self) -> Vec<Tensor> {
@@ -416,4 +528,53 @@ impl Llama2LM {
         params.extend(self.lm_head.parameters());
         params
     }
+}
+
+/// Helper function to sample a token index from 1D logit tensor [VocabSize].
+fn sample_token_logits(logits: &Tensor, temperature: f32) -> Result<usize> {
+    let contig = logits.data().to_contiguous();
+    let slice = contig.as_slice();
+
+    if temperature <= 1e-5 {
+        // Greedy argmax
+        let best = slice
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .map(|(idx, _)| idx)
+            .unwrap_or(0);
+        return Ok(best);
+    }
+
+    // Temperature scaled softmax
+    let max_l = slice.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let mut exp_sum = 0.0f32;
+    let mut probs = Vec::with_capacity(slice.len());
+    for &l in slice {
+        let exp_val = ((l - max_l) / temperature).exp();
+        probs.push(exp_val);
+        exp_sum += exp_val;
+    }
+
+    let inv_sum = 1.0 / exp_sum;
+    for p in &mut probs {
+        *p *= inv_sum;
+    }
+
+    // Simple pseudo-random cumulative sampling
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(42);
+    let r = (seed as f32 % 10000.0) / 10000.0;
+
+    let mut cum = 0.0f32;
+    for (idx, &p) in probs.iter().enumerate() {
+        cum += p;
+        if r <= cum {
+            return Ok(idx);
+        }
+    }
+
+    Ok(probs.len() - 1)
 }

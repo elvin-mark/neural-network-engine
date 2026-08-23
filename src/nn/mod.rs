@@ -1,4 +1,4 @@
-//! Composable neural network layers, activation functions, losses, initializations, recurrent networks, and transformer modules.
+//! Composable neural network layers, activation functions, losses, initializations, recurrent networks, quantized layers, and transformer modules.
 
 pub mod activations;
 pub mod attention;
@@ -7,12 +7,14 @@ pub mod conv;
 pub mod dropout;
 pub mod embedding;
 pub mod init;
+pub mod kv_cache;
 pub mod linear;
 pub mod llama;
 pub mod loss;
 pub mod module;
 pub mod norm;
 pub mod pooling;
+pub mod quantized;
 pub mod rnn;
 pub mod sequential;
 pub mod transformer;
@@ -34,6 +36,7 @@ pub use init::{
     orthogonal_, uniform, uniform_, xavier_normal, xavier_normal_, xavier_uniform, xavier_uniform_,
     zeros_, FanMode, NonLinearity,
 };
+pub use kv_cache::KVCache;
 pub use linear::Linear;
 pub use llama::{
     GroupedQueryAttention, Llama2Block, Llama2LM, LlamaConfig, RotaryEmbedding, SwiGLU,
@@ -42,6 +45,7 @@ pub use loss::{BCEWithLogitsLoss, CrossEntropyLoss, L1Loss, MSELoss};
 pub use module::Module;
 pub use norm::{BatchNorm1d, LayerNorm, RMSNorm};
 pub use pooling::MaxPool2d;
+pub use quantized::{Int8Tensor, QLinear};
 pub use rnn::{GRUCell, LSTMCell, RNNActivation, RNNCell, GRU, LSTM, RNN};
 pub use sequential::Sequential;
 pub use transformer::{TransformerBlock, TransformerLM};

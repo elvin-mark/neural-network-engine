@@ -44,6 +44,15 @@ impl MultiHeadAttention {
 
     /// Computes multi-head self-attention on input tensor of shape [BatchSize, SeqLen, DModel].
     pub fn forward_attention(&self, x: &Tensor) -> Result<Tensor> {
+        self.forward_attention_cached(x, None)
+    }
+
+    /// Computes multi-head self-attention with optional Key-Value caching for fast $O(N)$ generation.
+    pub fn forward_attention_cached(
+        &self,
+        x: &Tensor,
+        cache: Option<&mut (Tensor, Tensor)>,
+    ) -> Result<Tensor> {
         let shape = x.shape();
         if shape.len() != 3 {
             return Err(EngineError::IncompatibleShapes {
@@ -66,38 +75,57 @@ impl MultiHeadAttention {
         let k = k.reshape(&[b, t, h, d])?.transpose(1, 2)?;
         let v = v.reshape(&[b, t, h, d])?.transpose(1, 2)?;
 
-        // 3. Attention scores = Q * K^T / sqrt(D) -> [B, H, T, T]
-        let k_t = k.transpose(2, 3)?;
+        // 3. Update KV cache if provided
+        let (k_all, v_all) = if let Some(kv_slot) = cache {
+            if kv_slot.0.numel() > 0 {
+                let k_cat = Tensor::cat(&[&kv_slot.0, &k], 2)?;
+                let v_cat = Tensor::cat(&[&kv_slot.1, &v], 2)?;
+                *kv_slot = (k_cat.clone(), v_cat.clone());
+                (k_cat, v_cat)
+            } else {
+                *kv_slot = (k.clone(), v.clone());
+                (k, v)
+            }
+        } else {
+            (k, v)
+        };
+
+        let total_seq_len = k_all.shape()[2];
+
+        // 4. Attention scores = Q * K^T / sqrt(D) -> [B, H, T, TotalSeqLen]
+        let k_t = k_all.transpose(2, 3)?;
         let scores = q.matmul(&k_t)?;
         let scale = 1.0 / (d as f32).sqrt();
         let scale_tensor = Tensor::scalar(scale, false);
         let mut scaled_scores = scores.mul(&scale_tensor)?;
 
-        // 4. Apply causal mask if enabled
+        // 5. Apply causal mask if enabled
         if self.is_causal && t > 1 {
-            let mut mask_data = vec![0.0; t * t];
+            let mut mask_data = vec![0.0; t * total_seq_len];
+            let start_pos = total_seq_len.saturating_sub(t);
             for row in 0..t {
-                for col in 0..t {
-                    if col > row {
-                        mask_data[row * t + col] = -1e4; // large negative value
+                let pos_r = start_pos + row;
+                for col in 0..total_seq_len {
+                    if col > pos_r {
+                        mask_data[row * total_seq_len + col] = -1e4;
                     }
                 }
             }
-            let mask_raw = RawTensor::from_vec(mask_data, vec![1, 1, t, t]);
+            let mask_raw = RawTensor::from_vec(mask_data, vec![1, 1, t, total_seq_len]);
             let mask = Tensor::new(mask_raw, false);
             scaled_scores = scaled_scores.add(&mask)?;
         }
 
-        // 5. Softmax along last dimension -> Attention weights [B, H, T, T]
+        // 6. Softmax along last dimension -> Attention weights [B, H, T, TotalSeqLen]
         let attn_weights = scaled_scores.softmax(3)?;
 
-        // 6. Context = Weights * V -> [B, H, T, D]
-        let context = attn_weights.matmul(&v)?;
+        // 7. Context = Weights * V -> [B, H, T, D]
+        let context = attn_weights.matmul(&v_all)?;
 
-        // 7. Transpose & reshape back to [B, T, C]
+        // 8. Transpose & reshape back to [B, T, C]
         let context = context.transpose(1, 2)?.reshape(&[b, t, c])?;
 
-        // 8. Output linear projection
+        // 9. Output linear projection
         self.out_proj.forward(&context)
     }
 

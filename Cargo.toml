@@ -96,6 +96,10 @@ required-features = ["gpu"]
 name = "15_recurrent_sequence_models"
 path = "examples/15_recurrent_sequence_models.rs"
 
+[[example]]
+name = "16_kvcache_and_int8_quantization"
+path = "examples/16_kvcache_and_int8_quantization.rs"
+
 
 
 
