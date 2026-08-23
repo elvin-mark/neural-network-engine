@@ -32,6 +32,16 @@ An efficient, pure-Rust deep learning engine built from scratch with zero C/BLAS
   - **Activations**: `ReLU`, `GELU`, `Sigmoid`, `Tanh`, `LeakyReLU`, `Softmax`, `LogSoftmax`.
   - **Losses**: Numerically stable `CrossEntropyLoss` (log-sum-exp), `MSELoss`, `BCEWithLogitsLoss`, `L1Loss`.
 
+- **Recurrent Neural Networks (`nn::rnn`)**:
+  - **Elman RNN**: Single-step `RNNCell` and multi-layer sequence `RNN` with Tanh / ReLU non-linearities and bidirectional support.
+  - **LSTM (Long Short-Term Memory)**: `LSTMCell` and multi-layer sequence `LSTM` with fused gates ($i, f, g, o$) and forget gate bias initialization.
+  - **GRU (Gated Recurrent Unit)**: `GRUCell` and multi-layer sequence `GRU` with reset, update, and candidate gates ($r, z, n$).
+
+- **Training Stability, Schedulers & Gradient Utilities (`optim`)**:
+  - **Gradient Clipping**: `clip_grad_norm` ($L_2$ global norm clipping across all parameters) and `clip_grad_value` (element-wise bounding).
+  - **Learning Rate Schedulers**: `StepLR`, `MultiStepLR`, `ExponentialLR`, `CosineAnnealingLR`, and `LinearWarmupCosineLR`.
+  - **Weight Initialization (`nn::init`)**: `xavier_uniform`, `xavier_normal`, `kaiming_uniform`, `kaiming_normal`, `orthogonal` (Gram-Schmidt QR decomposition), and activation gain calculators.
+
 - **State-of-the-Art Optimizers (`optim`)**:
   - `SGD` (with momentum, weight decay, and Nesterov acceleration).
   - `Adam` and `AdamW` (with decoupled weight decay and bias correction).
@@ -276,6 +286,11 @@ cargo test
 14. **Hardware WebGPU Compute Acceleration (Matrix Multiplication & Deep NN Forward Pass in VRAM)**:
     ```bash
     cargo run --release --features gpu --example 14_gpu_acceleration
+    ```
+
+15. **Recurrent Sequence Modeling & Benchmark (Elman RNN vs LSTM vs GRU)**:
+    ```bash
+    cargo run --release --example 15_recurrent_sequence_models
     ```
 
 ### Run Benchmarks

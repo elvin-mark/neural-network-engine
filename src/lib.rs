@@ -3,7 +3,8 @@
 //! An efficient, pure-Rust deep learning engine featuring:
 //! - Multi-dimensional strided tensor runtime with broadcasting and cache-blocked SIMD/Rayon GEMM
 //! - Dynamic reverse-mode automatic differentiation (Autograd) DAG with in-place gradient accumulation
-//! - Composable deep learning layers (`Linear`, `Conv2d`, `MaxPool2d`, `LayerNorm`, `RMSNorm`, `BatchNorm1d`, `Dropout`, `Embedding`, `Sequential`, `MultiHeadAttention`, `GroupedQueryAttention`, `TransformerBlock`, `Llama2Block`, `TransformerLM`, `Llama2LM`)
+//! - Composable deep learning layers (`Linear`, `Conv2d`, `MaxPool2d`, `LayerNorm`, `RMSNorm`, `BatchNorm1d`, `Dropout`, `Embedding`, `Sequential`, `RNN`, `LSTM`, `GRU`, `MultiHeadAttention`, `GroupedQueryAttention`, `TransformerBlock`, `Llama2Block`, `TransformerLM`, `Llama2LM`)
+//! - Recurrent layers: Elman RNN, Long Short-Term Memory (LSTM), and Gated Recurrent Unit (GRU) with bidirectional and multi-layer sequence support
 //! - Modern LLM primitives: Grouped-Query Attention (GQA), Rotary Position Embeddings (RoPE), SwiGLU Feed-Forward Networks
 //! - Numerically stable loss functions (`CrossEntropyLoss`, `MSELoss`, `BCEWithLogitsLoss`, `L1Loss`)
 //! - Optimizers (`SGD`, `Adam`, `AdamW`, `RMSprop`), gradient clipping, and learning rate schedulers
@@ -42,11 +43,12 @@ pub mod prelude {
         orthogonal_, uniform, uniform_, xavier_normal, xavier_normal_, xavier_uniform,
         xavier_uniform_, zeros_, BCEWithLogitsLoss, BatchNorm1d, BertConfig, BertEmbeddings,
         BertEncoder, BertForQuestionAnswering, BertForSequenceEmbedding, BertLayer, BertModel,
-        BertPooler, Conv2d, CrossEntropyLoss, Dropout, Embedding, FanMode, GroupedQueryAttention,
-        L1Loss, LayerNorm, LeakyReLU, Linear, Llama2Block, Llama2LM, LlamaConfig, MSELoss,
-        MaxPool2d, Module, MultiHeadAttention, NonLinearity, RMSNorm, ReLU, RotaryEmbedding,
-        Sequential, SiLU, Sigmoid, Softmax, SwiGLU, Tanh, TransformerBlock, TransformerLM,
-        ViTConfig, VisionTransformer, Whisper, WhisperConfig, GELU,
+        BertPooler, Conv2d, CrossEntropyLoss, Dropout, Embedding, FanMode, GRUCell,
+        GroupedQueryAttention, L1Loss, LSTMCell, LayerNorm, LeakyReLU, Linear, Llama2Block,
+        Llama2LM, LlamaConfig, MSELoss, MaxPool2d, Module, MultiHeadAttention, NonLinearity,
+        RMSNorm, RNNActivation, RNNCell, ReLU, RotaryEmbedding, Sequential, SiLU, Sigmoid, Softmax,
+        SwiGLU, Tanh, TransformerBlock, TransformerLM, ViTConfig, VisionTransformer, Whisper,
+        WhisperConfig, GELU, GRU, LSTM, RNN,
     };
     pub use crate::optim::{
         clip_grad_norm, clip_grad_value, Adam, CosineAnnealingLR, ExponentialLR, LRScheduler,

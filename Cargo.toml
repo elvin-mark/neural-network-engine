@@ -92,6 +92,10 @@ name = "14_gpu_acceleration"
 path = "examples/14_gpu_acceleration.rs"
 required-features = ["gpu"]
 
+[[example]]
+name = "15_recurrent_sequence_models"
+path = "examples/15_recurrent_sequence_models.rs"
+
 
 
 

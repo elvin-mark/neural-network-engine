@@ -1,4 +1,4 @@
-//! Composable neural network layers, activation functions, losses, initializations, and transformer modules.
+//! Composable neural network layers, activation functions, losses, initializations, recurrent networks, and transformer modules.
 
 pub mod activations;
 pub mod attention;
@@ -13,6 +13,7 @@ pub mod loss;
 pub mod module;
 pub mod norm;
 pub mod pooling;
+pub mod rnn;
 pub mod sequential;
 pub mod transformer;
 pub mod vit;
@@ -41,6 +42,7 @@ pub use loss::{BCEWithLogitsLoss, CrossEntropyLoss, L1Loss, MSELoss};
 pub use module::Module;
 pub use norm::{BatchNorm1d, LayerNorm, RMSNorm};
 pub use pooling::MaxPool2d;
+pub use rnn::{GRUCell, LSTMCell, RNNActivation, RNNCell, GRU, LSTM, RNN};
 pub use sequential::Sequential;
 pub use transformer::{TransformerBlock, TransformerLM};
 pub use vit::{ViTConfig, VisionTransformer};
