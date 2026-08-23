@@ -1,4 +1,4 @@
-//! Composable neural network layers, activation functions, losses, and transformer modules.
+//! Composable neural network layers, activation functions, losses, initializations, and transformer modules.
 
 pub mod activations;
 pub mod attention;
@@ -6,6 +6,7 @@ pub mod bert;
 pub mod conv;
 pub mod dropout;
 pub mod embedding;
+pub mod init;
 pub mod linear;
 pub mod llama;
 pub mod loss;
@@ -26,6 +27,12 @@ pub use bert::{
 pub use conv::Conv2d;
 pub use dropout::Dropout;
 pub use embedding::Embedding;
+pub use init::{
+    calculate_fan_in_and_fan_out, calculate_gain, constant, constant_, kaiming_normal,
+    kaiming_normal_, kaiming_uniform, kaiming_uniform_, normal, normal_, ones_, orthogonal,
+    orthogonal_, uniform, uniform_, xavier_normal, xavier_normal_, xavier_uniform, xavier_uniform_,
+    zeros_, FanMode, NonLinearity,
+};
 pub use linear::Linear;
 pub use llama::{
     GroupedQueryAttention, Llama2Block, Llama2LM, LlamaConfig, RotaryEmbedding, SwiGLU,

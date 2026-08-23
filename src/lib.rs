@@ -6,7 +6,8 @@
 //! - Composable deep learning layers (`Linear`, `Conv2d`, `MaxPool2d`, `LayerNorm`, `RMSNorm`, `BatchNorm1d`, `Dropout`, `Embedding`, `Sequential`, `MultiHeadAttention`, `GroupedQueryAttention`, `TransformerBlock`, `Llama2Block`, `TransformerLM`, `Llama2LM`)
 //! - Modern LLM primitives: Grouped-Query Attention (GQA), Rotary Position Embeddings (RoPE), SwiGLU Feed-Forward Networks
 //! - Numerically stable loss functions (`CrossEntropyLoss`, `MSELoss`, `BCEWithLogitsLoss`, `L1Loss`)
-//! - Optimizers (`SGD`, `Adam`, `AdamW`, `RMSprop`)
+//! - Optimizers (`SGD`, `Adam`, `AdamW`, `RMSprop`), gradient clipping, and learning rate schedulers
+//! - Mathematically principled weight initializations (Xavier, Kaiming, Orthogonal)
 //! - SafeTensors and JSON/Bincode serialization
 //! - Numerical finite-difference gradient verification (`gradcheck`)
 
@@ -36,15 +37,21 @@ pub mod prelude {
     pub use crate::gpu::{GpuContext, GpuLayerNorm, GpuLinear, GpuRMSNorm, GpuTensor, ToGpu};
     pub use crate::io::{load_safetensors, save_safetensors, Checkpoint};
     pub use crate::nn::{
-        BCEWithLogitsLoss, BatchNorm1d, BertConfig, BertEmbeddings, BertEncoder,
-        BertForQuestionAnswering, BertForSequenceEmbedding, BertLayer, BertModel, BertPooler,
-        Conv2d, CrossEntropyLoss, Dropout, Embedding, GroupedQueryAttention, L1Loss, LayerNorm,
-        LeakyReLU, Linear, Llama2Block, Llama2LM, LlamaConfig, MSELoss, MaxPool2d, Module,
-        MultiHeadAttention, RMSNorm, ReLU, RotaryEmbedding, Sequential, SiLU, Sigmoid, Softmax,
-        SwiGLU, Tanh, TransformerBlock, TransformerLM, ViTConfig, VisionTransformer, Whisper,
-        WhisperConfig, GELU,
+        calculate_fan_in_and_fan_out, calculate_gain, constant, constant_, kaiming_normal,
+        kaiming_normal_, kaiming_uniform, kaiming_uniform_, normal, normal_, ones_, orthogonal,
+        orthogonal_, uniform, uniform_, xavier_normal, xavier_normal_, xavier_uniform,
+        xavier_uniform_, zeros_, BCEWithLogitsLoss, BatchNorm1d, BertConfig, BertEmbeddings,
+        BertEncoder, BertForQuestionAnswering, BertForSequenceEmbedding, BertLayer, BertModel,
+        BertPooler, Conv2d, CrossEntropyLoss, Dropout, Embedding, FanMode, GroupedQueryAttention,
+        L1Loss, LayerNorm, LeakyReLU, Linear, Llama2Block, Llama2LM, LlamaConfig, MSELoss,
+        MaxPool2d, Module, MultiHeadAttention, NonLinearity, RMSNorm, ReLU, RotaryEmbedding,
+        Sequential, SiLU, Sigmoid, Softmax, SwiGLU, Tanh, TransformerBlock, TransformerLM,
+        ViTConfig, VisionTransformer, Whisper, WhisperConfig, GELU,
     };
-    pub use crate::optim::{Adam, RMSprop, SGD};
+    pub use crate::optim::{
+        clip_grad_norm, clip_grad_value, Adam, CosineAnnealingLR, ExponentialLR, LRScheduler,
+        LinearWarmupCosineLR, MultiStepLR, Optimizer, RMSprop, StepLR, SGD,
+    };
     pub use crate::tensor::conv::Conv2dParams;
     pub use crate::tensor::RawTensor;
     pub use crate::tokenizer::ByteLevelBPE;
