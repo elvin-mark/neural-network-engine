@@ -179,3 +179,28 @@ fn test_gpu_linear_layer() {
 
     assert_tensor_approx_eq(&y_cpu.data(), &y_gpu, 1e-3);
 }
+
+#[test]
+fn test_gpu_buffer_pool_recycling() {
+    let Some(ctx) = get_test_gpu_context() else {
+        return;
+    };
+
+    ctx.clear_buffer_pool();
+
+    let linear_gpu = Linear::new(32, 64).to_gpu(&ctx).unwrap();
+    let x_gpu = RawTensor::randn(&[8, 32], 0.0, 1.0).to_gpu(&ctx).unwrap();
+
+    // Run 5 sequential forward passes
+    for _ in 0..5 {
+        let _out = linear_gpu.forward(&x_gpu).unwrap();
+    }
+
+    let stats = ctx.pool_stats();
+    assert!(
+        stats.hits > 0,
+        "Expected GPU buffer cache hits, got: {}",
+        stats
+    );
+    assert!(stats.hit_rate() > 0.0);
+}

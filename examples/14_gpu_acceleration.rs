@@ -165,6 +165,50 @@ fn main() -> Result<()> {
         sum_prob
     );
 
+    // ---------------------------------------------------------
+    // Step 4: VRAM Buffer Pool Zero-Allocation Telemetry
+    // ---------------------------------------------------------
+    println!("------------------------------------------------------------");
+    println!("       Step 4: GPU VRAM Buffer Pool Recycling Telemetry     ");
+    println!("------------------------------------------------------------\n");
+
+    ctx.clear_buffer_pool();
+    let multi_steps = 100;
+    println!(
+        "Running {} sequential deep network iterations...",
+        multi_steps
+    );
+
+    let start_multi = Instant::now();
+    for _ in 0..multi_steps {
+        let h1 = l1_gpu.forward(&x_gpu)?.gelu()?;
+        let h2 = ln_gpu.forward(&h1)?;
+        let logits = l2_gpu.forward(&h2)?;
+        let _ = logits.softmax()?;
+    }
+    ctx.device.poll(wgpu::Maintain::Wait);
+    let multi_duration = start_multi.elapsed();
+
+    let stats = ctx.pool_stats();
+    println!("VRAM Buffer Pool Telemetry:");
+    println!("  • VRAM Cache Hits:    {}", stats.hits);
+    println!("  • Cache Misses:       {}", stats.misses);
+    println!(
+        "  • Cache Hit Rate:     {:.1}% (High VRAM recycling)",
+        stats.hit_rate()
+    );
+    println!(
+        "  • Cached VRAM Memory: {:.2} MB",
+        stats.cached_bytes as f32 / (1024.0 * 1024.0)
+    );
+    println!("  • Active VRAM Blocks: {}", stats.free_buffers);
+    println!(
+        "  • Total Time ({} it): {:.2?} ({:.3} ms/step)\n",
+        multi_steps,
+        multi_duration,
+        multi_duration.as_secs_f64() * 1000.0 / multi_steps as f64
+    );
+
     println!("WebGPU compute pipeline executed successfully!");
     Ok(())
 }

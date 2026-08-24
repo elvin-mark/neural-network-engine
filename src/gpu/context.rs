@@ -1,15 +1,17 @@
-//! WebGPU Device Context and Compute Pipeline caching.
+//! WebGPU Device Context, Compute Pipeline caching, and VRAM Buffer Pool.
 
 use crate::error::{EngineError, Result};
+use crate::gpu::pool::{GpuBufferPool, GpuPoolStats, PooledGpuBuffer};
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
-/// GPU execution context holding the initialized `wgpu::Device`, `wgpu::Queue`, and compiled shader cache.
+/// GPU execution context holding the initialized `wgpu::Device`, `wgpu::Queue`, shader cache, and VRAM pool.
 pub struct GpuContext {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub adapter_info: wgpu::AdapterInfo,
     pipelines: RwLock<HashMap<String, Arc<wgpu::ComputePipeline>>>,
+    buffer_pool: Mutex<GpuBufferPool>,
 }
 
 impl GpuContext {
@@ -73,6 +75,7 @@ impl GpuContext {
             queue,
             adapter_info,
             pipelines: RwLock::new(HashMap::new()),
+            buffer_pool: Mutex::new(GpuBufferPool::new(1024 * 1024 * 1024)), // 1 GiB VRAM limit
         }))
     }
 
@@ -109,5 +112,34 @@ impl GpuContext {
         let mut cache = self.pipelines.write().unwrap();
         cache.insert(name.to_string(), pipeline.clone());
         Ok(pipeline)
+    }
+
+    /// Acquires a pooled VRAM buffer of at least `size_bytes` size.
+    pub fn acquire_buffer(
+        self: &Arc<Self>,
+        size_bytes: u64,
+        usage: wgpu::BufferUsages,
+    ) -> Arc<PooledGpuBuffer> {
+        let (buffer, target_size) =
+            self.buffer_pool
+                .lock()
+                .unwrap()
+                .pop(&self.device, size_bytes, usage);
+        Arc::new(PooledGpuBuffer::new(buffer, target_size, self.clone()))
+    }
+
+    /// Recycles a `wgpu::Buffer` back into the VRAM pool.
+    pub fn recycle_buffer(&self, buffer: wgpu::Buffer, size_bytes: u64) {
+        self.buffer_pool.lock().unwrap().push(buffer, size_bytes);
+    }
+
+    /// Returns telemetry statistics for the GPU VRAM pool.
+    pub fn pool_stats(&self) -> GpuPoolStats {
+        self.buffer_pool.lock().unwrap().stats()
+    }
+
+    /// Clears all cached VRAM buffers, releasing GPU memory.
+    pub fn clear_buffer_pool(&self) {
+        self.buffer_pool.lock().unwrap().clear();
     }
 }

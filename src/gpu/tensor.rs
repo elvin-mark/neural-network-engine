@@ -2,14 +2,15 @@
 
 use crate::error::{EngineError, Result};
 use crate::gpu::context::GpuContext;
+use crate::gpu::pool::PooledGpuBuffer;
 use crate::tensor::RawTensor;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
-/// A multi-dimensional tensor stored in GPU VRAM with WebGPU compute acceleration.
+/// A multi-dimensional tensor stored in GPU VRAM with WebGPU compute acceleration and VRAM pool recycling.
 #[derive(Clone)]
 pub struct GpuTensor {
-    pub buffer: Arc<wgpu::Buffer>,
+    pub buffer: Arc<PooledGpuBuffer>,
     pub shape: Vec<usize>,
     pub ctx: Arc<GpuContext>,
 }
@@ -25,18 +26,18 @@ impl GpuTensor {
             });
         }
 
-        let buffer = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("gpu_tensor_buffer"),
-                contents: bytemuck::cast_slice(slice),
-                usage: wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_SRC
-                    | wgpu::BufferUsages::COPY_DST,
-            });
+        let size_bytes = std::mem::size_of_val(slice) as u64;
+        let buffer = ctx.acquire_buffer(
+            size_bytes,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
+        );
+        ctx.queue
+            .write_buffer(&buffer, 0, bytemuck::cast_slice(slice));
 
         Ok(Self {
-            buffer: Arc::new(buffer),
+            buffer,
             shape: shape.to_vec(),
             ctx: ctx.clone(),
         })
@@ -130,14 +131,12 @@ impl GpuTensor {
         let k = k_a;
 
         let c_size_bytes = (m * n * std::mem::size_of::<f32>()) as u64;
-        let c_buffer = self.ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gpu_matmul_c_buffer"),
-            size: c_size_bytes,
-            usage: wgpu::BufferUsages::STORAGE
+        let c_buffer = self.ctx.acquire_buffer(
+            c_size_bytes,
+            wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        );
 
         let dims_data = [m as u32, k as u32, n as u32, 0u32];
         let dims_buffer = self
@@ -201,7 +200,7 @@ impl GpuTensor {
         self.ctx.queue.submit(Some(encoder.finish()));
 
         Ok(GpuTensor {
-            buffer: Arc::new(c_buffer),
+            buffer: c_buffer,
             shape: vec![m, n],
             ctx: self.ctx.clone(),
         })
@@ -235,14 +234,12 @@ impl GpuTensor {
         };
 
         let c_size_bytes = (len * std::mem::size_of::<f32>()) as u64;
-        let c_buffer = self.ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gpu_elem_c_buffer"),
-            size: c_size_bytes,
-            usage: wgpu::BufferUsages::STORAGE
+        let c_buffer = self.ctx.acquire_buffer(
+            c_size_bytes,
+            wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        );
 
         let dummy_b = if other.is_none() {
             Some(self.ctx.device.create_buffer(&wgpu::BufferDescriptor {
@@ -322,7 +319,7 @@ impl GpuTensor {
         self.ctx.queue.submit(Some(encoder.finish()));
 
         Ok(GpuTensor {
-            buffer: Arc::new(c_buffer),
+            buffer: c_buffer,
             shape: self.shape.clone(),
             ctx: self.ctx.clone(),
         })
@@ -385,14 +382,12 @@ impl GpuTensor {
         let cols = self.shape[1];
 
         let c_size_bytes = (rows * cols * std::mem::size_of::<f32>()) as u64;
-        let c_buffer = self.ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gpu_softmax_c_buffer"),
-            size: c_size_bytes,
-            usage: wgpu::BufferUsages::STORAGE
+        let c_buffer = self.ctx.acquire_buffer(
+            c_size_bytes,
+            wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        );
 
         let params_data = [rows as u32, cols as u32, 0u32, 0u32];
         let params_buffer = self
@@ -451,7 +446,7 @@ impl GpuTensor {
         self.ctx.queue.submit(Some(encoder.finish()));
 
         Ok(GpuTensor {
-            buffer: Arc::new(c_buffer),
+            buffer: c_buffer,
             shape: self.shape.clone(),
             ctx: self.ctx.clone(),
         })
@@ -468,14 +463,12 @@ impl GpuTensor {
         let cols = self.shape[1];
 
         let c_size_bytes = (rows * cols * std::mem::size_of::<f32>()) as u64;
-        let c_buffer = self.ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gpu_layernorm_c_buffer"),
-            size: c_size_bytes,
-            usage: wgpu::BufferUsages::STORAGE
+        let c_buffer = self.ctx.acquire_buffer(
+            c_size_bytes,
+            wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        );
 
         let dummy_beta = if beta.is_none() {
             Some(
@@ -562,7 +555,7 @@ impl GpuTensor {
         self.ctx.queue.submit(Some(encoder.finish()));
 
         Ok(GpuTensor {
-            buffer: Arc::new(c_buffer),
+            buffer: c_buffer,
             shape: self.shape.clone(),
             ctx: self.ctx.clone(),
         })
@@ -574,14 +567,12 @@ impl GpuTensor {
         let cols = self.shape[1];
 
         let c_size_bytes = (rows * cols * std::mem::size_of::<f32>()) as u64;
-        let c_buffer = self.ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gpu_rmsnorm_c_buffer"),
-            size: c_size_bytes,
-            usage: wgpu::BufferUsages::STORAGE
+        let c_buffer = self.ctx.acquire_buffer(
+            c_size_bytes,
+            wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        );
 
         let dummy_beta = self
             .ctx
@@ -657,7 +648,7 @@ impl GpuTensor {
         self.ctx.queue.submit(Some(encoder.finish()));
 
         Ok(GpuTensor {
-            buffer: Arc::new(c_buffer),
+            buffer: c_buffer,
             shape: self.shape.clone(),
             ctx: self.ctx.clone(),
         })
