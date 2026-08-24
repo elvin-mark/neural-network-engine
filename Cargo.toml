@@ -104,6 +104,11 @@ path = "examples/16_kvcache_and_int8_quantization.rs"
 name = "17_resnet_cifar_vision"
 path = "examples/17_resnet_cifar_vision.rs"
 
+[[example]]
+name = "18_tensor_pool_and_flash_attention"
+path = "examples/18_tensor_pool_and_flash_attention.rs"
+
+
 
 
 

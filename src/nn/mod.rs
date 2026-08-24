@@ -1,4 +1,4 @@
-//! Composable neural network layers, activation functions, losses, initializations, recurrent networks, quantized layers, residual networks, and transformer modules.
+//! Composable neural network layers, activation functions, losses, initializations, recurrent networks, quantized layers, residual networks, flash attention, and transformer modules.
 
 pub mod activations;
 pub mod attention;
@@ -6,6 +6,7 @@ pub mod bert;
 pub mod conv;
 pub mod dropout;
 pub mod embedding;
+pub mod flash_attention;
 pub mod init;
 pub mod kv_cache;
 pub mod linear;
@@ -31,6 +32,7 @@ pub use bert::{
 pub use conv::Conv2d;
 pub use dropout::Dropout;
 pub use embedding::Embedding;
+pub use flash_attention::{flash_attention_forward, FlashAttention};
 pub use init::{
     calculate_fan_in_and_fan_out, calculate_gain, constant, constant_, kaiming_normal,
     kaiming_normal_, kaiming_uniform, kaiming_uniform_, normal, normal_, ones_, orthogonal,

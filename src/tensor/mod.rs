@@ -4,15 +4,18 @@ pub mod conv;
 pub mod display;
 pub mod matmul;
 pub mod ops;
+pub mod pool;
 pub mod reduce;
 pub mod shape;
 pub mod storage;
+
+pub use pool::{PoolStats, TensorPool};
+pub use storage::{PooledVec, Storage};
 
 use crate::error::{EngineError, Result};
 use rand_distr::{Distribution, Normal, Uniform};
 use shape::{compute_c_contiguous_strides, is_contiguous, multi_index_to_offset, numel};
 use std::fmt;
-use storage::Storage;
 
 /// N-dimensional strided tensor holding 32-bit floating point data.
 #[derive(Clone, PartialEq)]
