@@ -100,6 +100,10 @@ path = "examples/15_recurrent_sequence_models.rs"
 name = "16_kvcache_and_int8_quantization"
 path = "examples/16_kvcache_and_int8_quantization.rs"
 
+[[example]]
+name = "17_resnet_cifar_vision"
+path = "examples/17_resnet_cifar_vision.rs"
+
 
 
 

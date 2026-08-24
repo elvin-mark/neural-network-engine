@@ -230,3 +230,121 @@ impl Module for BatchNorm1d {
         self.is_training = false;
     }
 }
+
+/// 2D Batch Normalization over a 4D spatial batch [BatchSize, NumChannels, Height, Width].
+#[derive(Clone)]
+pub struct BatchNorm2d {
+    pub num_features: usize,
+    pub weight: Tensor, // gamma [1, C, 1, 1]
+    pub bias: Tensor,   // beta [1, C, 1, 1]
+    pub running_mean: Arc<RwLock<RawTensor>>,
+    pub running_var: Arc<RwLock<RawTensor>>,
+    pub eps: f32,
+    pub momentum: f32,
+    pub is_training: bool,
+}
+
+impl BatchNorm2d {
+    pub fn new(num_features: usize) -> Self {
+        Self {
+            num_features,
+            weight: Tensor::ones(&[1, num_features, 1, 1], true),
+            bias: Tensor::zeros(&[1, num_features, 1, 1], true),
+            running_mean: Arc::new(RwLock::new(RawTensor::zeros(&[1, num_features, 1, 1]))),
+            running_var: Arc::new(RwLock::new(RawTensor::ones(&[1, num_features, 1, 1]))),
+            eps: 1e-5,
+            momentum: 0.1,
+            is_training: true,
+        }
+    }
+
+    /// Returns the current running mean tensor.
+    pub fn running_mean(&self) -> RawTensor {
+        self.running_mean.read().unwrap().clone()
+    }
+
+    /// Returns the current running variance tensor.
+    pub fn running_var(&self) -> RawTensor {
+        self.running_var.read().unwrap().clone()
+    }
+}
+
+impl Module for BatchNorm2d {
+    fn forward(&self, input: &Tensor) -> Result<Tensor> {
+        let shape = input.shape();
+        if shape.len() != 4 {
+            return Err(EngineError::InvalidArgument(format!(
+                "BatchNorm2d expects 4D tensor [BatchSize, Channels, Height, Width], got rank {} with shape {:?}",
+                shape.len(),
+                shape
+            )));
+        }
+        if shape[1] != self.num_features {
+            return Err(EngineError::ShapeMismatch {
+                expected: vec![self.num_features],
+                actual: vec![shape[1]],
+            });
+        }
+
+        if self.is_training {
+            let m_w = input.mean(3, true)?;
+            let m_hw = m_w.mean(2, true)?;
+            let mean = m_hw.mean(0, true)?; // [1, C, 1, 1]
+
+            let diff = input.sub(&mean)?;
+            let diff_sq = diff.powf(2.0)?;
+            let v_w = diff_sq.mean(3, true)?;
+            let v_hw = v_w.mean(2, true)?;
+            let var = v_hw.mean(0, true)?; // [1, C, 1, 1]
+
+            // Update exponential moving average running statistics
+            let m = self.momentum;
+            let batch_mean = mean.data();
+            let batch_var = var.data();
+            {
+                let mut rm = self.running_mean.write().unwrap();
+                let scaled_rm = rm.mul_scalar(1.0 - m)?;
+                let scaled_bm = batch_mean.mul_scalar(m)?;
+                *rm = scaled_rm.add(&scaled_bm)?;
+            }
+            {
+                let mut rv = self.running_var.write().unwrap();
+                let scaled_rv = rv.mul_scalar(1.0 - m)?;
+                let scaled_bv = batch_var.mul_scalar(m)?;
+                *rv = scaled_rv.add(&scaled_bv)?;
+            }
+
+            let var_eps = var.add(&Tensor::scalar(self.eps, false))?;
+            let std = var_eps.powf(0.5)?;
+            let norm = diff.div(&std)?;
+
+            let scaled = norm.mul(&self.weight)?;
+            scaled.add(&self.bias)
+        } else {
+            let mean_raw = self.running_mean.read().unwrap().clone();
+            let var_raw = self.running_var.read().unwrap().clone();
+            let mean_tensor = Tensor::new(mean_raw, false);
+            let var_tensor = Tensor::new(var_raw, false);
+
+            let diff = input.sub(&mean_tensor)?;
+            let var_eps = var_tensor.add(&Tensor::scalar(self.eps, false))?;
+            let std = var_eps.powf(0.5)?;
+            let norm = diff.div(&std)?;
+
+            let scaled = norm.mul(&self.weight)?;
+            scaled.add(&self.bias)
+        }
+    }
+
+    fn parameters(&self) -> Vec<Tensor> {
+        vec![self.weight.clone(), self.bias.clone()]
+    }
+
+    fn train(&mut self) {
+        self.is_training = true;
+    }
+
+    fn eval(&mut self) {
+        self.is_training = false;
+    }
+}

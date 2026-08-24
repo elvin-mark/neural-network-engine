@@ -3,8 +3,10 @@
 //! An efficient, pure-Rust deep learning engine featuring:
 //! - Multi-dimensional strided tensor runtime with broadcasting and cache-blocked SIMD/Rayon GEMM
 //! - Dynamic reverse-mode automatic differentiation (Autograd) DAG with in-place gradient accumulation
-//! - Composable deep learning layers (`Linear`, `QLinear`, `Conv2d`, `MaxPool2d`, `LayerNorm`, `RMSNorm`, `BatchNorm1d`, `Dropout`, `Embedding`, `Sequential`, `RNN`, `LSTM`, `GRU`, `MultiHeadAttention`, `GroupedQueryAttention`, `TransformerBlock`, `Llama2Block`, `TransformerLM`, `Llama2LM`)
+//! - Composable deep learning layers (`Linear`, `QLinear`, `Conv2d`, `MaxPool2d`, `LayerNorm`, `RMSNorm`, `BatchNorm1d`, `BatchNorm2d`, `Dropout`, `Embedding`, `Sequential`, `RNN`, `LSTM`, `GRU`, `MultiHeadAttention`, `GroupedQueryAttention`, `TransformerBlock`, `Llama2Block`, `TransformerLM`, `Llama2LM`, `ResNet`, `ResidualBlock`, `BottleneckBlock`)
 //! - Recurrent layers: Elman RNN, Long Short-Term Memory (LSTM), and Gated Recurrent Unit (GRU) with bidirectional and multi-layer sequence support
+//! - Residual Vision Networks: ResNet-18, ResNet-34, ResNet-50 with Basic and Bottleneck skip connections
+//! - Computer Vision Data Augmentation: RandomHorizontalFlip, RandomVerticalFlip, RandomCrop, ColorJitter, RandomRotation, Normalize, Compose
 //! - High-performance $O(N)$ Key-Value Cache (`KVCache`) for autoregressive LLM decoding
 //! - INT8 Quantization (`Int8Tensor`, `QLinear`) with 4x memory compression and SIMD AVX2 acceleration
 //! - Modern LLM primitives: Grouped-Query Attention (GQA), Rotary Position Embeddings (RoPE), SwiGLU Feed-Forward Networks
@@ -24,6 +26,7 @@ pub mod optim;
 pub mod tensor;
 pub mod tokenizer;
 pub mod utils;
+pub mod vision;
 
 pub use autograd::{is_grad_enabled, no_grad, set_grad_enabled, NoGradGuard, Tensor};
 pub use error::{EngineError, Result};
@@ -31,6 +34,10 @@ pub use error::{EngineError, Result};
 pub use gpu::{GpuContext, GpuLayerNorm, GpuLinear, GpuRMSNorm, GpuTensor, ToGpu};
 pub use tensor::RawTensor;
 pub use tokenizer::ByteLevelBPE;
+pub use vision::{
+    ColorJitter, Compose, Normalize, RandomCrop, RandomHorizontalFlip, RandomRotation90,
+    RandomVerticalFlip, Transform,
+};
 
 /// Commonly used imports grouped for convenience.
 pub mod prelude {
@@ -43,14 +50,15 @@ pub mod prelude {
         calculate_fan_in_and_fan_out, calculate_gain, constant, constant_, kaiming_normal,
         kaiming_normal_, kaiming_uniform, kaiming_uniform_, normal, normal_, ones_, orthogonal,
         orthogonal_, uniform, uniform_, xavier_normal, xavier_normal_, xavier_uniform,
-        xavier_uniform_, zeros_, BCEWithLogitsLoss, BatchNorm1d, BertConfig, BertEmbeddings,
-        BertEncoder, BertForQuestionAnswering, BertForSequenceEmbedding, BertLayer, BertModel,
-        BertPooler, Conv2d, CrossEntropyLoss, Dropout, Embedding, FanMode, GRUCell,
-        GroupedQueryAttention, Int8Tensor, KVCache, L1Loss, LSTMCell, LayerNorm, LeakyReLU, Linear,
-        Llama2Block, Llama2LM, LlamaConfig, MSELoss, MaxPool2d, Module, MultiHeadAttention,
-        NonLinearity, QLinear, RMSNorm, RNNActivation, RNNCell, ReLU, RotaryEmbedding, Sequential,
-        SiLU, Sigmoid, Softmax, SwiGLU, Tanh, TransformerBlock, TransformerLM, ViTConfig,
-        VisionTransformer, Whisper, WhisperConfig, GELU, GRU, LSTM, RNN,
+        xavier_uniform_, zeros_, BCEWithLogitsLoss, BatchNorm1d, BatchNorm2d, BertConfig,
+        BertEmbeddings, BertEncoder, BertForQuestionAnswering, BertForSequenceEmbedding, BertLayer,
+        BertModel, BertPooler, BottleneckBlock, Conv2d, CrossEntropyLoss, Dropout, Embedding,
+        FanMode, GRUCell, GroupedQueryAttention, Int8Tensor, KVCache, L1Loss, LSTMCell, LayerNorm,
+        LeakyReLU, Linear, Llama2Block, Llama2LM, LlamaConfig, MSELoss, MaxPool2d, Module,
+        MultiHeadAttention, NonLinearity, QLinear, RMSNorm, RNNActivation, RNNCell, ReLU, ResBlock,
+        ResNet, ResidualBlock, RotaryEmbedding, Sequential, SiLU, Sigmoid, Softmax, SwiGLU, Tanh,
+        TransformerBlock, TransformerLM, ViTConfig, VisionTransformer, Whisper, WhisperConfig,
+        GELU, GRU, LSTM, RNN,
     };
     pub use crate::optim::{
         clip_grad_norm, clip_grad_value, Adam, CosineAnnealingLR, ExponentialLR, LRScheduler,
@@ -69,5 +77,9 @@ pub mod prelude {
         load_iris_from_csv, load_mnist_dataset, load_mnist_from_idx, load_spoken_dataset,
         load_tinystories_dataset, mel_to_hz, standardize, synthesize_spoken_word, train_test_split,
         DataLoader, QASample, TensorDataset, CIFAR10_CLASSES, SPOKEN_CLASSES,
+    };
+    pub use crate::vision::{
+        ColorJitter, Compose, Normalize, RandomCrop, RandomHorizontalFlip, RandomRotation90,
+        RandomVerticalFlip, Transform,
     };
 }

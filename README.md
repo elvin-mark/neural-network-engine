@@ -28,9 +28,16 @@ An efficient, pure-Rust deep learning engine built from scratch with zero C/BLAS
   - Thread-local `no_grad` guard for zero-overhead inference.
 
 - **Modular Neural Network Primitives (`nn`)**:
-  - **Layers**: `Linear`, `Conv2d`, `MaxPool2d`, `LayerNorm`, `BatchNorm1d`, `Dropout`, `Embedding`, `Sequential`.
+  - **Layers**: `Linear`, `Conv2d`, `MaxPool2d`, `LayerNorm`, `RMSNorm`, `BatchNorm1d`, `BatchNorm2d`, `Dropout`, `Embedding`, `Sequential`.
   - **Activations**: `ReLU`, `GELU`, `Sigmoid`, `Tanh`, `LeakyReLU`, `Softmax`, `LogSoftmax`.
   - **Losses**: Numerically stable `CrossEntropyLoss` (log-sum-exp), `MSELoss`, `BCEWithLogitsLoss`, `L1Loss`.
+
+- **Residual Vision Networks (`nn::resnet`)**:
+  - **Skip Connections**: Basic `ResidualBlock` (2x $3\times3$ Conv2D) and `BottleneckBlock` ($1\times1 \to 3\times3 \to 1\times1$ Conv2D with 4x channel expansion).
+  - **Architectures**: Configurable `ResNet-18`, `ResNet-34`, `ResNet-50` with support for both standard ImageNet and $32\times32$ CIFAR stems.
+
+- **Computer Vision Data Augmentations (`vision::transforms`)**:
+  - **Composable Pipeline (`Compose`)**: `RandomHorizontalFlip`, `RandomVerticalFlip`, `RandomCrop` (with spatial padding), `Normalize` (ImageNet, CIFAR-10, CIFAR-100 presets), `ColorJitter`, and `RandomRotation90`.
 
 - **Inference Acceleration & Low-Precision Quantization (`nn::kv_cache`, `nn::quantized`)**:
   - **$O(N)$ Key-Value Cache (`KVCache`)**: Eliminates quadratic attention recomputation during autoregressive generation in LLaMA 2 and Transformers (3.7x+ speedup).
@@ -300,6 +307,11 @@ cargo test
 16. **Key-Value Cache (KV-Cache) & INT8 Quantization (QLinear) Benchmark**:
     ```bash
     cargo run --release --example 16_kvcache_and_int8_quantization
+    ```
+
+17. **Deep Residual Networks (ResNet-18) & Vision Data Augmentation Pipeline**:
+    ```bash
+    cargo run --release --example 17_resnet_cifar_vision
     ```
 
 ### Run Benchmarks
