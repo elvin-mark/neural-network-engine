@@ -333,11 +333,25 @@ cargo test
     cargo run --release --example 19_moe_and_mixed_precision
     ```
 
-20. **Python Bindings & NumPy Training Pipeline**:
-    ```bash
-    cargo build --features python
-    python3 python/examples/training_demo.py
-    ```
+### Python Examples & Workflows
+All Python examples live in `python/examples/` and utilize the compiled pure-Rust backend:
+
+```bash
+# Build python extension library
+cargo build --release --features python
+
+# 1. End-to-End NumPy MLP Training with AMP LossScaler
+python3 python/examples/training_demo.py
+
+# 2. ResNet-18 Vision Training with BatchNorm2d & CrossEntropyLoss
+python3 python/examples/resnet_vision.py
+
+# 3. Transformer Language Model (nanoGPT style) with Causal Self-Attention
+python3 python/examples/transformer_lm.py
+
+# 4. Mixture of Experts (MoE) & FlashAttention-2 vs Standard Attention
+python3 python/examples/moe_and_flash_attention.py
+```
 
 ### Run Benchmarks
 ```bash
