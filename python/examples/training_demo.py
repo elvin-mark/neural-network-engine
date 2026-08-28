@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 # Add python directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "python"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import neural_network_engine as nne
 import numpy as np

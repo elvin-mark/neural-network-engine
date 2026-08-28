@@ -336,7 +336,7 @@ cargo test
 20. **Python Bindings & NumPy Training Pipeline**:
     ```bash
     cargo build --features python
-    python3 examples/python_training_demo.py
+    python3 python/examples/training_demo.py
     ```
 
 ### Run Benchmarks
