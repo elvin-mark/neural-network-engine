@@ -1,10 +1,29 @@
 #![allow(clippy::useless_conversion)]
 
 use crate::autograd::Tensor as RustTensor;
-use crate::nn::activations::{ReLU as RustReLU, SiLU as RustSiLU, GELU as RustGELU};
+use crate::nn::activations::{
+    LeakyReLU as RustLeakyReLU, ReLU as RustReLU, SiLU as RustSiLU, Sigmoid as RustSigmoid,
+    Tanh as RustTanh, GELU as RustGELU,
+};
+use crate::nn::attention::MultiHeadAttention as RustMultiHeadAttention;
+use crate::nn::conv::Conv2d as RustConv2d;
+use crate::nn::dropout::Dropout as RustDropout;
+use crate::nn::embedding::Embedding as RustEmbedding;
+use crate::nn::flash_attention::FlashAttention as RustFlashAttention;
 use crate::nn::linear::Linear as RustLinear;
+use crate::nn::llama::SwiGLU as RustSwiGLU;
+use crate::nn::loss::{CrossEntropyLoss as RustCrossEntropyLoss, MSELoss as RustMSELoss};
 use crate::nn::module::Module;
-use crate::nn::norm::{LayerNorm as RustLayerNorm, RMSNorm as RustRMSNorm};
+use crate::nn::moe::{MoEConfig as RustMoEConfig, MoELayer as RustMoELayer};
+use crate::nn::norm::{
+    BatchNorm1d as RustBatchNorm1d, BatchNorm2d as RustBatchNorm2d, LayerNorm as RustLayerNorm,
+    RMSNorm as RustRMSNorm,
+};
+use crate::nn::pooling::MaxPool2d as RustMaxPool2d;
+use crate::nn::resnet::{ResNet as RustResNet, ResidualBlock as RustResidualBlock};
+use crate::nn::transformer::{
+    TransformerBlock as RustTransformerBlock, TransformerLM as RustTransformerLM,
+};
 use crate::optim::adam::Adam as RustAdam;
 use crate::optim::amp::LossScaler as RustLossScaler;
 use crate::optim::sgd::SGD as RustSGD;
@@ -253,6 +272,7 @@ impl PyTensor {
 // =============================================================================
 
 #[pyclass(name = "Linear")]
+#[derive(Clone)]
 pub struct PyLinear {
     pub(crate) inner: RustLinear,
 }
@@ -287,7 +307,157 @@ impl PyLinear {
     }
 }
 
+#[pyclass(name = "Conv2d")]
+#[derive(Clone)]
+pub struct PyConv2d {
+    pub(crate) inner: RustConv2d,
+}
+
+#[pymethods]
+impl PyConv2d {
+    #[new]
+    #[pyo3(signature = (in_channels, out_channels, kernel_size, stride=(1, 1), padding=(0, 0), dilation=(1, 1), bias=true))]
+    fn new(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: (usize, usize),
+        stride: (usize, usize),
+        padding: (usize, usize),
+        dilation: (usize, usize),
+        bias: bool,
+    ) -> Self {
+        PyConv2d {
+            inner: RustConv2d::with_options(
+                in_channels,
+                out_channels,
+                kernel_size,
+                stride,
+                padding,
+                dilation,
+                bias,
+            ),
+        }
+    }
+
+    fn forward(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.inner
+            .forward(&x.inner)
+            .map(|t| PyTensor { inner: t })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(x)
+    }
+
+    fn parameters(&self) -> Vec<PyTensor> {
+        self.inner
+            .parameters()
+            .into_iter()
+            .map(|p| PyTensor { inner: p })
+            .collect()
+    }
+}
+
+#[pyclass(name = "MaxPool2d")]
+#[derive(Clone)]
+pub struct PyMaxPool2d {
+    pub(crate) inner: RustMaxPool2d,
+}
+
+#[pymethods]
+impl PyMaxPool2d {
+    #[new]
+    #[pyo3(signature = (kernel_size, stride=None))]
+    fn new(kernel_size: (usize, usize), stride: Option<(usize, usize)>) -> Self {
+        let strd = stride.unwrap_or(kernel_size);
+        PyMaxPool2d {
+            inner: RustMaxPool2d::new(kernel_size, strd),
+        }
+    }
+
+    fn forward(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.inner
+            .forward(&x.inner)
+            .map(|t| PyTensor { inner: t })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(x)
+    }
+}
+
+#[pyclass(name = "Embedding")]
+#[derive(Clone)]
+pub struct PyEmbedding {
+    pub(crate) inner: RustEmbedding,
+}
+
+#[pymethods]
+impl PyEmbedding {
+    #[new]
+    fn new(num_embeddings: usize, embedding_dim: usize) -> Self {
+        PyEmbedding {
+            inner: RustEmbedding::new(num_embeddings, embedding_dim),
+        }
+    }
+
+    fn forward(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.inner
+            .forward(&x.inner)
+            .map(|t| PyTensor { inner: t })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(x)
+    }
+
+    fn parameters(&self) -> Vec<PyTensor> {
+        self.inner
+            .parameters()
+            .into_iter()
+            .map(|p| PyTensor { inner: p })
+            .collect()
+    }
+}
+
+#[pyclass(name = "Dropout")]
+#[derive(Clone)]
+pub struct PyDropout {
+    pub(crate) inner: RustDropout,
+}
+
+#[pymethods]
+impl PyDropout {
+    #[new]
+    #[pyo3(signature = (p=0.5))]
+    fn new(p: f32) -> Self {
+        PyDropout {
+            inner: RustDropout::new(p),
+        }
+    }
+
+    fn forward(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.inner
+            .forward(&x.inner)
+            .map(|t| PyTensor { inner: t })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(x)
+    }
+
+    #[setter]
+    fn set_training(&mut self, is_training: bool) {
+        self.inner.is_training = is_training;
+    }
+}
+
 #[pyclass(name = "LayerNorm")]
+#[derive(Clone)]
 pub struct PyLayerNorm {
     pub(crate) inner: RustLayerNorm,
 }
@@ -323,6 +493,7 @@ impl PyLayerNorm {
 }
 
 #[pyclass(name = "RMSNorm")]
+#[derive(Clone)]
 pub struct PyRMSNorm {
     pub(crate) inner: RustRMSNorm,
 }
@@ -357,7 +528,411 @@ impl PyRMSNorm {
     }
 }
 
+#[pyclass(name = "BatchNorm1d")]
+#[derive(Clone)]
+pub struct PyBatchNorm1d {
+    pub(crate) inner: RustBatchNorm1d,
+}
+
+#[pymethods]
+impl PyBatchNorm1d {
+    #[new]
+    fn new(num_features: usize) -> Self {
+        PyBatchNorm1d {
+            inner: RustBatchNorm1d::new(num_features),
+        }
+    }
+
+    fn forward(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.inner
+            .forward(&x.inner)
+            .map(|t| PyTensor { inner: t })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(x)
+    }
+
+    fn parameters(&self) -> Vec<PyTensor> {
+        self.inner
+            .parameters()
+            .into_iter()
+            .map(|p| PyTensor { inner: p })
+            .collect()
+    }
+}
+
+#[pyclass(name = "BatchNorm2d")]
+#[derive(Clone)]
+pub struct PyBatchNorm2d {
+    pub(crate) inner: RustBatchNorm2d,
+}
+
+#[pymethods]
+impl PyBatchNorm2d {
+    #[new]
+    fn new(num_features: usize) -> Self {
+        PyBatchNorm2d {
+            inner: RustBatchNorm2d::new(num_features),
+        }
+    }
+
+    fn forward(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.inner
+            .forward(&x.inner)
+            .map(|t| PyTensor { inner: t })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(x)
+    }
+
+    fn parameters(&self) -> Vec<PyTensor> {
+        self.inner
+            .parameters()
+            .into_iter()
+            .map(|p| PyTensor { inner: p })
+            .collect()
+    }
+}
+
+#[pyclass(name = "MultiHeadAttention")]
+#[derive(Clone)]
+pub struct PyMultiHeadAttention {
+    pub(crate) inner: RustMultiHeadAttention,
+}
+
+#[pymethods]
+impl PyMultiHeadAttention {
+    #[new]
+    #[pyo3(signature = (d_model, num_heads, is_causal=true))]
+    fn new(d_model: usize, num_heads: usize, is_causal: bool) -> Self {
+        PyMultiHeadAttention {
+            inner: RustMultiHeadAttention::new(d_model, num_heads, is_causal),
+        }
+    }
+
+    fn forward(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.inner
+            .forward(&x.inner)
+            .map(|t| PyTensor { inner: t })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(x)
+    }
+
+    fn parameters(&self) -> Vec<PyTensor> {
+        self.inner
+            .parameters()
+            .into_iter()
+            .map(|p| PyTensor { inner: p })
+            .collect()
+    }
+}
+
+#[pyclass(name = "FlashAttention")]
+#[derive(Clone)]
+pub struct PyFlashAttention {
+    pub(crate) inner: RustFlashAttention,
+}
+
+#[pymethods]
+impl PyFlashAttention {
+    #[new]
+    #[pyo3(signature = (d_model, num_heads, is_causal=true))]
+    fn new(d_model: usize, num_heads: usize, is_causal: bool) -> Self {
+        PyFlashAttention {
+            inner: RustFlashAttention::new(d_model, num_heads, is_causal),
+        }
+    }
+
+    fn forward(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.inner
+            .forward(&x.inner)
+            .map(|t| PyTensor { inner: t })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(x)
+    }
+
+    fn parameters(&self) -> Vec<PyTensor> {
+        self.inner
+            .parameters()
+            .into_iter()
+            .map(|p| PyTensor { inner: p })
+            .collect()
+    }
+}
+
+#[pyclass(name = "SwiGLU")]
+#[derive(Clone)]
+pub struct PySwiGLU {
+    pub(crate) inner: RustSwiGLU,
+}
+
+#[pymethods]
+impl PySwiGLU {
+    #[new]
+    fn new(d_model: usize, hidden_dim: usize) -> Self {
+        PySwiGLU {
+            inner: RustSwiGLU::new(d_model, hidden_dim),
+        }
+    }
+
+    fn forward(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.inner
+            .forward(&x.inner)
+            .map(|t| PyTensor { inner: t })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(x)
+    }
+
+    fn parameters(&self) -> Vec<PyTensor> {
+        self.inner
+            .parameters()
+            .into_iter()
+            .map(|p| PyTensor { inner: p })
+            .collect()
+    }
+}
+
+#[pyclass(name = "MoELayer")]
+#[derive(Clone)]
+pub struct PyMoELayer {
+    pub(crate) inner: RustMoELayer,
+}
+
+#[pymethods]
+impl PyMoELayer {
+    #[new]
+    #[pyo3(signature = (d_model, hidden_dim, num_experts=8, top_k=2, aux_loss_coeff=0.01))]
+    fn new(
+        d_model: usize,
+        hidden_dim: usize,
+        num_experts: usize,
+        top_k: usize,
+        aux_loss_coeff: f32,
+    ) -> Self {
+        let config = RustMoEConfig {
+            d_model,
+            hidden_dim,
+            num_experts,
+            top_k,
+            aux_loss_coeff,
+        };
+        PyMoELayer {
+            inner: RustMoELayer::new(config),
+        }
+    }
+
+    fn forward(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.inner
+            .forward(&x.inner)
+            .map(|t| PyTensor { inner: t })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn forward_with_aux(&self, x: &PyTensor) -> PyResult<(PyTensor, PyTensor)> {
+        self.inner
+            .forward_with_aux(&x.inner)
+            .map(|(out, aux)| (PyTensor { inner: out }, PyTensor { inner: aux }))
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(x)
+    }
+
+    fn parameters(&self) -> Vec<PyTensor> {
+        self.inner
+            .parameters()
+            .into_iter()
+            .map(|p| PyTensor { inner: p })
+            .collect()
+    }
+}
+
+#[pyclass(name = "TransformerBlock")]
+pub struct PyTransformerBlock {
+    pub(crate) inner: RustTransformerBlock,
+}
+
+#[pymethods]
+impl PyTransformerBlock {
+    #[new]
+    #[pyo3(signature = (d_model, num_heads, is_causal=true))]
+    fn new(d_model: usize, num_heads: usize, is_causal: bool) -> Self {
+        PyTransformerBlock {
+            inner: RustTransformerBlock::new(d_model, num_heads, is_causal),
+        }
+    }
+
+    fn forward(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.inner
+            .forward(&x.inner)
+            .map(|t| PyTensor { inner: t })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(x)
+    }
+
+    fn parameters(&self) -> Vec<PyTensor> {
+        self.inner
+            .parameters()
+            .into_iter()
+            .map(|p| PyTensor { inner: p })
+            .collect()
+    }
+}
+
+#[pyclass(name = "TransformerLM")]
+pub struct PyTransformerLM {
+    pub(crate) inner: RustTransformerLM,
+}
+
+#[pymethods]
+impl PyTransformerLM {
+    #[new]
+    #[pyo3(signature = (vocab_size, max_seq_len, d_model, num_heads, num_layers))]
+    fn new(
+        vocab_size: usize,
+        max_seq_len: usize,
+        d_model: usize,
+        num_heads: usize,
+        num_layers: usize,
+    ) -> Self {
+        PyTransformerLM {
+            inner: RustTransformerLM::new(vocab_size, max_seq_len, d_model, num_heads, num_layers),
+        }
+    }
+
+    fn forward(&self, token_indices: &PyTensor) -> PyResult<PyTensor> {
+        let contig = token_indices.inner.data().to_contiguous();
+        let shape = contig.shape();
+        let (b, t) = if shape.len() == 2 {
+            (shape[0], shape[1])
+        } else if shape.len() == 1 {
+            (1, shape[0])
+        } else {
+            return Err(PyValueError::new_err(format!(
+                "Expected 1D or 2D token indices, got shape {:?}",
+                shape
+            )));
+        };
+
+        let slice = contig.as_slice();
+        let indices: Vec<usize> = slice.iter().map(|&x| x as usize).collect();
+
+        self.inner
+            .forward_tokens(&indices, b, t)
+            .map(|out| PyTensor { inner: out })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, token_indices: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(token_indices)
+    }
+
+    fn parameters(&self) -> Vec<PyTensor> {
+        self.inner
+            .parameters()
+            .into_iter()
+            .map(|p| PyTensor { inner: p })
+            .collect()
+    }
+}
+
+#[pyclass(name = "ResidualBlock")]
+pub struct PyResidualBlock {
+    pub(crate) inner: RustResidualBlock,
+}
+
+#[pymethods]
+impl PyResidualBlock {
+    #[new]
+    #[pyo3(signature = (in_channels, out_channels, stride=1))]
+    fn new(in_channels: usize, out_channels: usize, stride: usize) -> Self {
+        PyResidualBlock {
+            inner: RustResidualBlock::new(in_channels, out_channels, stride),
+        }
+    }
+
+    fn forward(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.inner
+            .forward(&x.inner)
+            .map(|t| PyTensor { inner: t })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(x)
+    }
+
+    fn parameters(&self) -> Vec<PyTensor> {
+        self.inner
+            .parameters()
+            .into_iter()
+            .map(|p| PyTensor { inner: p })
+            .collect()
+    }
+}
+
+#[pyclass(name = "ResNet18")]
+pub struct PyResNet18 {
+    pub(crate) inner: RustResNet,
+}
+
+#[pymethods]
+impl PyResNet18 {
+    #[new]
+    #[pyo3(signature = (num_classes=10, in_channels=3, cifar_stem=true))]
+    fn new(num_classes: usize, in_channels: usize, cifar_stem: bool) -> Self {
+        PyResNet18 {
+            inner: if cifar_stem {
+                RustResNet::cifar_resnet18(in_channels, num_classes)
+            } else {
+                RustResNet::resnet18(in_channels, num_classes)
+            },
+        }
+    }
+
+    fn forward(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.inner
+            .forward(&x.inner)
+            .map(|t| PyTensor { inner: t })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(x)
+    }
+
+    fn parameters(&self) -> Vec<PyTensor> {
+        self.inner
+            .parameters()
+            .into_iter()
+            .map(|p| PyTensor { inner: p })
+            .collect()
+    }
+}
+
+// =============================================================================
+// Activations & Loss Functions
+// =============================================================================
+
 #[pyclass(name = "ReLU")]
+#[derive(Clone)]
 pub struct PyReLU;
 
 #[pymethods]
@@ -380,6 +955,7 @@ impl PyReLU {
 }
 
 #[pyclass(name = "GELU")]
+#[derive(Clone)]
 pub struct PyGELU;
 
 #[pymethods]
@@ -402,6 +978,7 @@ impl PyGELU {
 }
 
 #[pyclass(name = "SiLU")]
+#[derive(Clone)]
 pub struct PySiLU;
 
 #[pymethods]
@@ -420,6 +997,130 @@ impl PySiLU {
 
     fn __call__(&self, x: &PyTensor) -> PyResult<PyTensor> {
         self.forward(x)
+    }
+}
+
+#[pyclass(name = "Sigmoid")]
+#[derive(Clone)]
+pub struct PySigmoid;
+
+#[pymethods]
+impl PySigmoid {
+    #[new]
+    fn new() -> Self {
+        PySigmoid
+    }
+
+    fn forward(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        RustSigmoid
+            .forward(&x.inner)
+            .map(|t| PyTensor { inner: t })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(x)
+    }
+}
+
+#[pyclass(name = "Tanh")]
+#[derive(Clone)]
+pub struct PyTanh;
+
+#[pymethods]
+impl PyTanh {
+    #[new]
+    fn new() -> Self {
+        PyTanh
+    }
+
+    fn forward(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        RustTanh
+            .forward(&x.inner)
+            .map(|t| PyTensor { inner: t })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(x)
+    }
+}
+
+#[pyclass(name = "LeakyReLU")]
+#[derive(Clone)]
+pub struct PyLeakyReLU {
+    pub(crate) inner: RustLeakyReLU,
+}
+
+#[pymethods]
+impl PyLeakyReLU {
+    #[new]
+    #[pyo3(signature = (negative_slope=0.01))]
+    fn new(negative_slope: f32) -> Self {
+        PyLeakyReLU {
+            inner: RustLeakyReLU::new(negative_slope),
+        }
+    }
+
+    fn forward(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.inner
+            .forward(&x.inner)
+            .map(|t| PyTensor { inner: t })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, x: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(x)
+    }
+}
+
+#[pyclass(name = "MSELoss")]
+pub struct PyMSELoss;
+
+#[pymethods]
+impl PyMSELoss {
+    #[new]
+    fn new() -> Self {
+        PyMSELoss
+    }
+
+    fn forward(&self, pred: &PyTensor, target: &PyTensor) -> PyResult<PyTensor> {
+        RustMSELoss::forward(&pred.inner, &target.inner)
+            .map(|t| PyTensor { inner: t })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, pred: &PyTensor, target: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(pred, target)
+    }
+}
+
+#[pyclass(name = "CrossEntropyLoss")]
+pub struct PyCrossEntropyLoss;
+
+#[pymethods]
+impl PyCrossEntropyLoss {
+    #[new]
+    fn new() -> Self {
+        PyCrossEntropyLoss
+    }
+
+    fn forward(&self, logits: &PyTensor, targets: &PyTensor) -> PyResult<PyTensor> {
+        let targets_raw = targets.inner.data();
+        let targets_contig = targets_raw.to_contiguous();
+        let slice = targets_contig.as_slice();
+        let mut indices = Vec::with_capacity(slice.len());
+        for &val in slice {
+            indices.push(val as usize);
+        }
+
+        RustCrossEntropyLoss::forward_with_indices(&logits.inner, &indices)
+            .map(|t| PyTensor { inner: t })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, logits: &PyTensor, targets: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(logits, targets)
     }
 }
 
@@ -563,13 +1264,41 @@ impl PyLossScaler {
 
 #[pymodule]
 fn neural_network_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Core Tensor
     m.add_class::<PyTensor>()?;
+
+    // NN Layers
     m.add_class::<PyLinear>()?;
+    m.add_class::<PyConv2d>()?;
+    m.add_class::<PyMaxPool2d>()?;
+    m.add_class::<PyEmbedding>()?;
+    m.add_class::<PyDropout>()?;
     m.add_class::<PyLayerNorm>()?;
     m.add_class::<PyRMSNorm>()?;
+    m.add_class::<PyBatchNorm1d>()?;
+    m.add_class::<PyBatchNorm2d>()?;
+    m.add_class::<PyMultiHeadAttention>()?;
+    m.add_class::<PyFlashAttention>()?;
+    m.add_class::<PySwiGLU>()?;
+    m.add_class::<PyMoELayer>()?;
+    m.add_class::<PyTransformerBlock>()?;
+    m.add_class::<PyTransformerLM>()?;
+    m.add_class::<PyResidualBlock>()?;
+    m.add_class::<PyResNet18>()?;
+
+    // Activations
     m.add_class::<PyReLU>()?;
     m.add_class::<PyGELU>()?;
     m.add_class::<PySiLU>()?;
+    m.add_class::<PySigmoid>()?;
+    m.add_class::<PyTanh>()?;
+    m.add_class::<PyLeakyReLU>()?;
+
+    // Losses
+    m.add_class::<PyMSELoss>()?;
+    m.add_class::<PyCrossEntropyLoss>()?;
+
+    // Optimizers & AMP
     m.add_class::<PySGD>()?;
     m.add_class::<PyAdam>()?;
     m.add_class::<PyLossScaler>()?;
