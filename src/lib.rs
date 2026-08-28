@@ -57,14 +57,14 @@ pub mod prelude {
         BertModel, BertPooler, BottleneckBlock, Conv2d, CrossEntropyLoss, Dropout, Embedding,
         FanMode, FlashAttention, GRUCell, GroupedQueryAttention, Int8Tensor, KVCache, L1Loss,
         LSTMCell, LayerNorm, LeakyReLU, Linear, Llama2Block, Llama2LM, LlamaConfig, MSELoss,
-        MaxPool2d, Module, MultiHeadAttention, NonLinearity, QLinear, RMSNorm, RNNActivation,
-        RNNCell, ReLU, ResBlock, ResNet, ResidualBlock, RotaryEmbedding, Sequential, SiLU, Sigmoid,
-        Softmax, SwiGLU, Tanh, TransformerBlock, TransformerLM, ViTConfig, VisionTransformer,
-        Whisper, WhisperConfig, GELU, GRU, LSTM, RNN,
+        MaxPool2d, MoEConfig, MoELayer, Module, MultiHeadAttention, NonLinearity, QLinear, RMSNorm,
+        RNNActivation, RNNCell, ReLU, ResBlock, ResNet, ResidualBlock, RotaryEmbedding, Sequential,
+        SiLU, Sigmoid, Softmax, SparseMoEBlock, SwiGLU, Tanh, TopKRouter, TransformerBlock,
+        TransformerLM, ViTConfig, VisionTransformer, Whisper, WhisperConfig, GELU, GRU, LSTM, RNN,
     };
     pub use crate::optim::{
         clip_grad_norm, clip_grad_value, Adam, CosineAnnealingLR, ExponentialLR, LRScheduler,
-        LinearWarmupCosineLR, MultiStepLR, Optimizer, RMSprop, StepLR, SGD,
+        LinearWarmupCosineLR, LossScaler, MultiStepLR, Optimizer, RMSprop, StepLR, SGD,
     };
     pub use crate::tensor::conv::Conv2dParams;
     pub use crate::tensor::{PoolStats, RawTensor, TensorPool};

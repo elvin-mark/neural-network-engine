@@ -308,6 +308,7 @@ impl Module for GroupedQueryAttention {
 }
 
 /// SwiGLU Feed-Forward Network: down_proj(silu(gate_proj(x)) * up_proj(x)).
+#[derive(Clone)]
 pub struct SwiGLU {
     pub gate_proj: Linear,
     pub up_proj: Linear,

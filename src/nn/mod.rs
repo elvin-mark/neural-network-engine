@@ -13,6 +13,7 @@ pub mod linear;
 pub mod llama;
 pub mod loss;
 pub mod module;
+pub mod moe;
 pub mod norm;
 pub mod pooling;
 pub mod quantized;
@@ -46,6 +47,7 @@ pub use llama::{
 };
 pub use loss::{BCEWithLogitsLoss, CrossEntropyLoss, L1Loss, MSELoss};
 pub use module::Module;
+pub use moe::{MoEConfig, MoELayer, SparseMoEBlock, TopKRouter};
 pub use norm::{BatchNorm1d, BatchNorm2d, LayerNorm, RMSNorm};
 pub use pooling::MaxPool2d;
 pub use quantized::{Int8Tensor, QLinear};

@@ -309,4 +309,86 @@ impl RawTensor {
             vec![num_indices, embedding_dim],
         ))
     }
+
+    /// Returns the top-k values and their flat indices along the last dimension.
+    ///
+    /// Input shape: `[..., D]` -> Output: `(values [..., k], indices [..., k])` as `(RawTensor, Vec<usize>)`
+    /// The returned indices are row-local (0..D).
+    pub fn topk(&self, k: usize) -> Result<(RawTensor, Vec<usize>)> {
+        let shape = self.shape();
+        let ndim = shape.len();
+        if ndim == 0 {
+            return Err(EngineError::InvalidArgument(
+                "topk: tensor must be at least 1D".to_string(),
+            ));
+        }
+        let d = shape[ndim - 1];
+        if k == 0 || k > d {
+            return Err(EngineError::InvalidArgument(format!(
+                "topk: k={} is out of range for last dimension size {}",
+                k, d
+            )));
+        }
+
+        let contig = self.to_contiguous();
+        let data = contig.as_slice();
+        let num_rows: usize = shape[..ndim - 1].iter().product::<usize>().max(1);
+
+        let mut top_vals = vec![0.0f32; num_rows * k];
+        let mut top_idxs = vec![0usize; num_rows * k];
+
+        for row in 0..num_rows {
+            let row_start = row * d;
+            let row_data = &data[row_start..row_start + d];
+
+            let mut indexed: Vec<(f32, usize)> = row_data
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(i, v)| (v, i))
+                .collect();
+            indexed.sort_unstable_by(|(a, _), (b, _)| {
+                b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            for j in 0..k {
+                top_vals[row * k + j] = indexed[j].0;
+                top_idxs[row * k + j] = indexed[j].1;
+            }
+        }
+
+        let mut out_shape = shape[..ndim - 1].to_vec();
+        out_shape.push(k);
+
+        Ok((RawTensor::from_vec(top_vals, out_shape), top_idxs))
+    }
+
+    /// Scatters `src` values back into a zero tensor of shape `[..., full_d]` using `indices` from `topk`.
+    pub fn topk_scatter_back(
+        src: &RawTensor,
+        indices: &[usize],
+        full_d: usize,
+    ) -> Result<RawTensor> {
+        let shape = src.shape();
+        let ndim = shape.len();
+        let k = shape[ndim - 1];
+        let num_rows: usize = shape[..ndim - 1].iter().product::<usize>().max(1);
+
+        let mut out_shape = shape[..ndim - 1].to_vec();
+        out_shape.push(full_d);
+        let mut out_data = vec![0.0f32; num_rows * full_d];
+
+        let src_contig = src.to_contiguous();
+        let src_slice = src_contig.as_slice();
+
+        for row in 0..num_rows {
+            let out_row_start = row * full_d;
+            for j in 0..k {
+                let col = indices[row * k + j];
+                out_data[out_row_start + col] += src_slice[row * k + j];
+            }
+        }
+
+        Ok(RawTensor::from_vec(out_data, out_shape))
+    }
 }

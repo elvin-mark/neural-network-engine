@@ -108,6 +108,11 @@ path = "examples/17_resnet_cifar_vision.rs"
 name = "18_tensor_pool_and_flash_attention"
 path = "examples/18_tensor_pool_and_flash_attention.rs"
 
+[[example]]
+name = "19_moe_and_mixed_precision"
+path = "examples/19_moe_and_mixed_precision.rs"
+
+
 
 
 

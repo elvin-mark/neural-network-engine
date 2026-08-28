@@ -1,6 +1,7 @@
 //! Optimization algorithms (SGD, Adam, AdamW, RMSprop), gradient clipping, and learning rate schedulers.
 
 pub mod adam;
+pub mod amp;
 pub mod clip;
 pub mod rmsprop;
 pub mod scheduler;
@@ -10,6 +11,7 @@ use crate::autograd::Tensor;
 use crate::error::Result;
 
 pub use adam::Adam;
+pub use amp::LossScaler;
 pub use clip::{clip_grad_norm, clip_grad_value};
 pub use rmsprop::RMSprop;
 pub use scheduler::{

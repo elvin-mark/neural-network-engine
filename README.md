@@ -40,7 +40,8 @@ An efficient, pure-Rust deep learning engine built from scratch with zero C/BLAS
 - **Computer Vision Data Augmentations (`vision::transforms`)**:
   - **Composable Pipeline (`Compose`)**: `RandomHorizontalFlip`, `RandomVerticalFlip`, `RandomCrop` (with spatial padding), `Normalize` (ImageNet, CIFAR-10, CIFAR-100 presets), `ColorJitter`, and `RandomRotation90`.
 
-- **Inference Acceleration, Attention & Low-Precision Quantization (`nn::kv_cache`, `nn::flash_attention`, `nn::quantized`)**:
+- **Inference Acceleration, Attention & Low-Precision Quantization (`nn::kv_cache`, `nn::flash_attention`, `nn::moe`, `nn::quantized`)**:
+  - **Mixture of Experts (`MoELayer`, `SparseMoEBlock`, `TopKRouter`)**: Sparse Top-K gating (Mixtral 8x7B / DeepSeek-V2 style) routing tokens to subsets of expert FFNs with auxiliary load-balancing loss.
   - **FlashAttention-2 (`FlashAttention`)**: Tiled online-softmax attention operating within L1/L2 CPU cache blocks, reducing attention memory from **$O(T^2) \to O(T)$** (256x memory reduction and 3.1x speedup).
   - **$O(N)$ Key-Value Cache (`KVCache`)**: Eliminates quadratic attention recomputation during autoregressive generation in LLaMA 2 and Transformers (3.7x+ speedup).
   - **INT8 Weight Quantization (`QLinear`, `Int8Tensor`)**: Symmetric per-channel weight compression achieving 4x memory reduction (75% savings) and 3.1x faster GEMM with AVX2 SIMD dot-product kernels.
@@ -51,6 +52,7 @@ An efficient, pure-Rust deep learning engine built from scratch with zero C/BLAS
   - **GRU (Gated Recurrent Unit)**: `GRUCell` and multi-layer sequence `GRU` with reset, update, and candidate gates ($r, z, n$).
 
 - **Training Stability, Schedulers & Gradient Utilities (`optim`)**:
+  - **Automatic Mixed Precision (`LossScaler`)**: Dynamic loss scaling with NaN/Inf detection, gradient unscaling, and adaptive backoff/growth factors.
   - **Gradient Clipping**: `clip_grad_norm` ($L_2$ global norm clipping across all parameters) and `clip_grad_value` (element-wise bounding).
   - **Learning Rate Schedulers**: `StepLR`, `MultiStepLR`, `ExponentialLR`, `CosineAnnealingLR`, and `LinearWarmupCosineLR`.
   - **Weight Initialization (`nn::init`)**: `xavier_uniform`, `xavier_normal`, `kaiming_uniform`, `kaiming_normal`, `orthogonal` (Gram-Schmidt QR decomposition), and activation gain calculators.
@@ -319,6 +321,11 @@ cargo test
 18. **Zero-Allocation Tensor Pool (`TensorPool`) & FlashAttention-2 Benchmark**:
     ```bash
     cargo run --release --example 18_tensor_pool_and_flash_attention
+    ```
+
+19. **Mixture of Experts (MoE) & Automatic Mixed Precision (AMP) Benchmark**:
+    ```bash
+    cargo run --release --example 19_moe_and_mixed_precision
     ```
 
 ### Run Benchmarks

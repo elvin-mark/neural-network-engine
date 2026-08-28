@@ -1183,6 +1183,35 @@ impl Tensor {
             inner: TensorInner::with_parents(out_data, vec![self.inner.clone()], backward_fn),
         })
     }
+
+    /// Returns top-k values and their row-local indices along the last dimension.
+    /// Gradient uses straight-through estimator: grad flows only to selected positions.
+    /// Returns `(values_tensor, indices_vec)` where indices are local per-row.
+    pub fn topk(&self, k: usize) -> Result<(Tensor, Vec<usize>)> {
+        let data = self.data();
+        let (top_vals_raw, indices) = data.topk(k)?;
+        let full_d = data.shape()[data.shape().len() - 1];
+
+        if !is_grad_enabled() || !self.requires_grad() {
+            return Ok((Tensor::new(top_vals_raw, false), indices));
+        }
+
+        let self_req = self.requires_grad();
+        let indices_clone = indices.clone();
+
+        let backward_fn: BackwardFn = Arc::new(move |grad| {
+            if !self_req {
+                return vec![None];
+            }
+            let scattered = RawTensor::topk_scatter_back(grad, &indices_clone, full_d).unwrap();
+            vec![Some(scattered)]
+        });
+
+        let out = Tensor {
+            inner: TensorInner::with_parents(top_vals_raw, vec![self.inner.clone()], backward_fn),
+        };
+        Ok((out, indices))
+    }
 }
 
 // --- Operator Overloads ---
