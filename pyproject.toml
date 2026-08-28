@@ -1,0 +1,29 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "neural-network-engine"
+version = "0.1.0"
+description = "High-performance pure-Rust deep learning engine with dynamic autograd, PyO3 Python bindings, and GPU acceleration"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT OR Apache-2.0" }
+keywords = ["deep-learning", "autograd", "tensor", "neural-network", "machine-learning"]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.24",
+]
+
+[tool.maturin]
+features = ["python"]
+module-name = "neural_network_engine"
+python-source = "python"

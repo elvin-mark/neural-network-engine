@@ -57,6 +57,11 @@ An efficient, pure-Rust deep learning engine built from scratch with zero C/BLAS
   - **Learning Rate Schedulers**: `StepLR`, `MultiStepLR`, `ExponentialLR`, `CosineAnnealingLR`, and `LinearWarmupCosineLR`.
   - **Weight Initialization (`nn::init`)**: `xavier_uniform`, `xavier_normal`, `kaiming_uniform`, `kaiming_normal`, `orthogonal` (Gram-Schmidt QR decomposition), and activation gain calculators.
 
+- **Python Bindings & NumPy Interoperability (`pyo3`, `numpy`)**:
+  - Full Python package with zero-copy NumPy array bridging (`Tensor.from_numpy`, `tensor.to_numpy()`).
+  - Python classes for `Tensor` (operator overloads, backward, gradients), `Linear`, `LayerNorm`, `RMSNorm`, activations, `SGD`, `Adam`, and `LossScaler`.
+  - Seamless integration via `pyproject.toml` and Maturin.
+
 - **State-of-the-Art Optimizers (`optim`)**:
   - `SGD` (with momentum, weight decay, and Nesterov acceleration).
   - `Adam` and `AdamW` (with decoupled weight decay and bias correction).
@@ -326,6 +331,12 @@ cargo test
 19. **Mixture of Experts (MoE) & Automatic Mixed Precision (AMP) Benchmark**:
     ```bash
     cargo run --release --example 19_moe_and_mixed_precision
+    ```
+
+20. **Python Bindings & NumPy Training Pipeline**:
+    ```bash
+    cargo build --features python
+    python3 examples/python_training_demo.py
     ```
 
 ### Run Benchmarks

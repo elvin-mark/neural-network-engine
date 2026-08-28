@@ -25,6 +25,8 @@ pub mod gpu;
 pub mod io;
 pub mod nn;
 pub mod optim;
+#[cfg(feature = "python")]
+pub mod python;
 pub mod tensor;
 pub mod tokenizer;
 pub mod utils;
