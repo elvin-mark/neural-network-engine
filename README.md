@@ -351,6 +351,9 @@ python3 python/examples/transformer_lm.py
 
 # 4. Mixture of Experts (MoE) & FlashAttention-2 vs Standard Attention
 python3 python/examples/moe_and_flash_attention.py
+
+# 5. Matrix Multiplication Benchmark (NumPy vs PyTorch vs Custom Engine)
+python3 python/examples/gemm_benchmark.py
 ```
 
 ### Run Benchmarks
