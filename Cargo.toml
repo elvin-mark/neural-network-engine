@@ -127,3 +127,8 @@ path = "src/bin/generate.rs"
 name = "similarity"
 path = "src/bin/similarity.rs"
 
+[[bin]]
+name = "qa"
+path = "src/bin/qa.rs"
+
+

@@ -393,25 +393,57 @@ impl HfTokenizer {
 
     fn encode_wordpiece(&self, text: &str) -> Vec<usize> {
         let mut tokens = Vec::new();
-        if let Some(cls) = self.cls_token_id {
-            tokens.push(cls);
+        let lower = text.to_lowercase();
+
+        // 1. Pre-tokenize: split on whitespace and punctuation
+        let mut words = Vec::new();
+        let mut cur_word = String::new();
+
+        for ch in lower.chars() {
+            if ch.is_whitespace() {
+                if !cur_word.is_empty() {
+                    words.push(cur_word.clone());
+                    cur_word.clear();
+                }
+            } else if ch.is_ascii_punctuation()
+                || ('\u{2000}'..='\u{206F}').contains(&ch)
+                || ('\u{2500}'..='\u{257F}').contains(&ch)
+                || ('\u{2E00}'..='\u{2E7F}').contains(&ch)
+                || ('\u{3000}'..='\u{303F}').contains(&ch)
+            {
+                if !cur_word.is_empty() {
+                    words.push(cur_word.clone());
+                    cur_word.clear();
+                }
+                words.push(ch.to_string());
+            } else {
+                cur_word.push(ch);
+            }
+        }
+        if !cur_word.is_empty() {
+            words.push(cur_word);
         }
 
-        let lower = text.to_lowercase();
-        let words: Vec<&str> = lower.split_whitespace().collect();
-
+        // 2. Subword tokenization using UTF-8 char boundaries
         for word in words {
-            let mut start = 0;
+            let char_boundaries: Vec<usize> = word.char_indices().map(|(idx, _)| idx).collect();
+            let num_chars = char_boundaries.len();
+            let mut boundaries = char_boundaries;
+            boundaries.push(word.len());
+
+            let mut start_char = 0;
             let mut is_bad = false;
             let mut sub_tokens = Vec::new();
 
-            while start < word.len() {
-                let mut end = word.len();
+            while start_char < num_chars {
+                let mut end_char = num_chars;
                 let mut cur_substr = None;
 
-                while start < end {
-                    let substr = &word[start..end];
-                    let candidate = if start > 0 {
+                while start_char < end_char {
+                    let start_byte = boundaries[start_char];
+                    let end_byte = boundaries[end_char];
+                    let substr = &word[start_byte..end_byte];
+                    let candidate = if start_char > 0 {
                         format!("##{}", substr)
                     } else {
                         substr.to_string()
@@ -421,12 +453,12 @@ impl HfTokenizer {
                         cur_substr = Some(candidate);
                         break;
                     }
-                    end -= 1;
+                    end_char -= 1;
                 }
 
                 if let Some(matched) = cur_substr {
                     sub_tokens.push(self.vocab[&matched]);
-                    start = end;
+                    start_char = end_char;
                 } else {
                     is_bad = true;
                     break;
@@ -440,10 +472,6 @@ impl HfTokenizer {
             } else {
                 tokens.extend(sub_tokens);
             }
-        }
-
-        if let Some(sep) = self.sep_token_id {
-            tokens.push(sep);
         }
 
         tokens
