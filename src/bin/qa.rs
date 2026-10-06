@@ -407,7 +407,7 @@ fn highlight_answer(context: &str, answer: &str) -> String {
 struct QaPrediction {
     answer: String,
     confidence: f32,
-    /// Best span logit score minus the [CLS] "no-answer" score. Unlike softmax
+    /// Best span logit score minus the `[CLS]` "no-answer" score. Unlike softmax
     /// confidence, this is not diluted by context length, so it is comparable
     /// across chunks of different sizes.
     span_score: f32,
