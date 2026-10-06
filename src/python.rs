@@ -1259,6 +1259,59 @@ impl PyLossScaler {
 }
 
 // =============================================================================
+// Autograd Context Managers & Functions
+// =============================================================================
+
+/// Context manager that disables gradient computation during its scope.
+///
+/// Can be used as a Python context manager:
+/// ```python
+/// with nne.no_grad():
+///     output = model(input)
+/// ```
+#[pyclass(name = "no_grad")]
+pub struct PyNoGradGuard {
+    prev_state: bool,
+}
+
+#[pymethods]
+impl PyNoGradGuard {
+    #[new]
+    fn new() -> Self {
+        Self {
+            prev_state: crate::autograd::is_grad_enabled(),
+        }
+    }
+
+    fn __enter__(&mut self) {
+        self.prev_state = crate::autograd::is_grad_enabled();
+        crate::autograd::set_grad_enabled(false);
+    }
+
+    #[pyo3(signature = (_exc_type=None, _exc_value=None, _traceback=None))]
+    fn __exit__(
+        &mut self,
+        _exc_type: Option<&Bound<'_, PyAny>>,
+        _exc_value: Option<&Bound<'_, PyAny>>,
+        _traceback: Option<&Bound<'_, PyAny>>,
+    ) {
+        crate::autograd::set_grad_enabled(self.prev_state);
+    }
+}
+
+/// Returns whether gradient computation is currently enabled.
+#[pyfunction]
+fn is_grad_enabled() -> bool {
+    crate::autograd::is_grad_enabled()
+}
+
+/// Sets whether gradient computation is enabled.
+#[pyfunction]
+fn set_grad_enabled(mode: bool) {
+    crate::autograd::set_grad_enabled(mode);
+}
+
+// =============================================================================
 // Python Module Declaration
 // =============================================================================
 
@@ -1302,6 +1355,11 @@ fn neural_network_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySGD>()?;
     m.add_class::<PyAdam>()?;
     m.add_class::<PyLossScaler>()?;
+
+    // Autograd Context & Utilities
+    m.add_class::<PyNoGradGuard>()?;
+    m.add_function(wrap_pyfunction!(is_grad_enabled, m)?)?;
+    m.add_function(wrap_pyfunction!(set_grad_enabled, m)?)?;
 
     Ok(())
 }

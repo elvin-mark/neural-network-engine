@@ -158,6 +158,25 @@ def test_losses_and_optimizers():
     print("✓ test_losses_and_optimizers passed")
 
 
+def test_no_grad_context():
+    assert nne.is_grad_enabled() is True
+
+    a = nne.Tensor.randn([4, 4], 0.0, 1.0, requires_grad=True)
+    b = nne.Tensor.randn([4, 4], 0.0, 1.0, requires_grad=True)
+
+    with nne.no_grad():
+        assert nne.is_grad_enabled() is False
+        c = a @ b
+        assert c.requires_grad is False
+
+    assert nne.is_grad_enabled() is True
+
+    # Outside no_grad context, gradient tracking is retained
+    d = a @ b
+    assert d.requires_grad is True
+    print("✓ test_no_grad_context passed")
+
+
 if __name__ == "__main__":
     print("========================================")
     print(" Running Python Bindings Test Suite")
@@ -172,6 +191,7 @@ if __name__ == "__main__":
     test_transformer_block_and_lm()
     test_resnet18_and_residual_block()
     test_losses_and_optimizers()
+    test_no_grad_context()
     print("========================================")
-    print(" All 10 Python Test Suites Passed (100% OK)!")
+    print(" All 11 Python Test Suites Passed (100% OK)!")
     print("========================================")
