@@ -16,7 +16,7 @@ import json
 import os
 from pathlib import Path
 import torch
-from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer, WhisperForConditionalGeneration
 from safetensors.torch import save_file
 
 
@@ -388,9 +388,131 @@ def convert_tinybert_qa(model_id: str, output_dir: Path):
     print(f"[✓] Model '{model_id}' successfully converted to {output_dir}")
 
 
+def convert_whisper(model_id: str, output_dir: Path):
+    print(f"[*] Loading Hugging Face Whisper model '{model_id}'...")
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    model = WhisperForConditionalGeneration.from_pretrained(model_id)
+    model.eval()
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print("[*] Transforming state_dict for neural-network-engine Whisper...")
+    transformed_weights = {}
+
+    # Encoder stem: HF Conv1d [C_out, C_in, kernel_size] -> Conv2d [C_out, C_in, 1, kernel_size]
+    transformed_weights["encoder.conv1.weight"] = model.model.encoder.conv1.weight.unsqueeze(2).detach().to(torch.float32).contiguous()
+    transformed_weights["encoder.conv1.bias"] = model.model.encoder.conv1.bias.detach().to(torch.float32).contiguous()
+    transformed_weights["encoder.conv2.weight"] = model.model.encoder.conv2.weight.unsqueeze(2).detach().to(torch.float32).contiguous()
+    transformed_weights["encoder.conv2.bias"] = model.model.encoder.conv2.bias.detach().to(torch.float32).contiguous()
+
+    # Encoder position embeddings & layer norm
+    transformed_weights["encoder.embed_positions.weight"] = model.model.encoder.embed_positions.weight.unsqueeze(0).detach().to(torch.float32).contiguous()
+    transformed_weights["encoder.layer_norm.weight"] = model.model.encoder.layer_norm.weight.detach().to(torch.float32).contiguous()
+    transformed_weights["encoder.layer_norm.bias"] = model.model.encoder.layer_norm.bias.detach().to(torch.float32).contiguous()
+
+    # Encoder layers
+    for i, layer in enumerate(model.model.encoder.layers):
+        prefix = f"encoder.layers.{i}"
+        transformed_weights[f"{prefix}.self_attn.q_proj.weight"] = layer.self_attn.q_proj.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.self_attn.q_proj.bias"] = layer.self_attn.q_proj.bias.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.self_attn.k_proj.weight"] = layer.self_attn.k_proj.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.self_attn.v_proj.weight"] = layer.self_attn.v_proj.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.self_attn.v_proj.bias"] = layer.self_attn.v_proj.bias.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.self_attn.out_proj.weight"] = layer.self_attn.out_proj.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.self_attn.out_proj.bias"] = layer.self_attn.out_proj.bias.detach().to(torch.float32).contiguous()
+
+        transformed_weights[f"{prefix}.self_attn_layer_norm.weight"] = layer.self_attn_layer_norm.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.self_attn_layer_norm.bias"] = layer.self_attn_layer_norm.bias.detach().to(torch.float32).contiguous()
+
+        transformed_weights[f"{prefix}.fc1.weight"] = layer.fc1.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.fc1.bias"] = layer.fc1.bias.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.fc2.weight"] = layer.fc2.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.fc2.bias"] = layer.fc2.bias.detach().to(torch.float32).contiguous()
+
+        transformed_weights[f"{prefix}.final_layer_norm.weight"] = layer.final_layer_norm.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.final_layer_norm.bias"] = layer.final_layer_norm.bias.detach().to(torch.float32).contiguous()
+
+    # Decoder embeddings & layer norm
+    transformed_weights["decoder.embed_tokens.weight"] = model.model.decoder.embed_tokens.weight.detach().to(torch.float32).contiguous()
+    transformed_weights["decoder.embed_positions.weight"] = model.model.decoder.embed_positions.weight.unsqueeze(0).detach().to(torch.float32).contiguous()
+    transformed_weights["decoder.layer_norm.weight"] = model.model.decoder.layer_norm.weight.detach().to(torch.float32).contiguous()
+    transformed_weights["decoder.layer_norm.bias"] = model.model.decoder.layer_norm.bias.detach().to(torch.float32).contiguous()
+    transformed_weights["decoder.lm_head.weight"] = model.proj_out.weight.detach().to(torch.float32).clone().contiguous()
+
+    # Decoder layers
+    for i, layer in enumerate(model.model.decoder.layers):
+        prefix = f"decoder.layers.{i}"
+        transformed_weights[f"{prefix}.self_attn.q_proj.weight"] = layer.self_attn.q_proj.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.self_attn.q_proj.bias"] = layer.self_attn.q_proj.bias.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.self_attn.k_proj.weight"] = layer.self_attn.k_proj.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.self_attn.v_proj.weight"] = layer.self_attn.v_proj.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.self_attn.v_proj.bias"] = layer.self_attn.v_proj.bias.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.self_attn.out_proj.weight"] = layer.self_attn.out_proj.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.self_attn.out_proj.bias"] = layer.self_attn.out_proj.bias.detach().to(torch.float32).contiguous()
+
+        transformed_weights[f"{prefix}.self_attn_layer_norm.weight"] = layer.self_attn_layer_norm.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.self_attn_layer_norm.bias"] = layer.self_attn_layer_norm.bias.detach().to(torch.float32).contiguous()
+
+        transformed_weights[f"{prefix}.encoder_attn.q_proj.weight"] = layer.encoder_attn.q_proj.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.encoder_attn.q_proj.bias"] = layer.encoder_attn.q_proj.bias.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.encoder_attn.k_proj.weight"] = layer.encoder_attn.k_proj.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.encoder_attn.v_proj.weight"] = layer.encoder_attn.v_proj.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.encoder_attn.v_proj.bias"] = layer.encoder_attn.v_proj.bias.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.encoder_attn.out_proj.weight"] = layer.encoder_attn.out_proj.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.encoder_attn.out_proj.bias"] = layer.encoder_attn.out_proj.bias.detach().to(torch.float32).contiguous()
+
+        transformed_weights[f"{prefix}.encoder_attn_layer_norm.weight"] = layer.encoder_attn_layer_norm.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.encoder_attn_layer_norm.bias"] = layer.encoder_attn_layer_norm.bias.detach().to(torch.float32).contiguous()
+
+        transformed_weights[f"{prefix}.fc1.weight"] = layer.fc1.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.fc1.bias"] = layer.fc1.bias.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.fc2.weight"] = layer.fc2.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.fc2.bias"] = layer.fc2.bias.detach().to(torch.float32).contiguous()
+
+        transformed_weights[f"{prefix}.final_layer_norm.weight"] = layer.final_layer_norm.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.final_layer_norm.bias"] = layer.final_layer_norm.bias.detach().to(torch.float32).contiguous()
+
+    weights_path = output_dir / "model.safetensors"
+    print(f"[*] Saving SafeTensors weights to {weights_path}...")
+    save_file(transformed_weights, str(weights_path))
+
+    tok_path = output_dir / "tokenizer.json"
+    print(f"[*] Saving Tokenizer to {tok_path}...")
+    tokenizer.save_pretrained(str(output_dir))
+
+    # Reference inference verification
+    print("[*] Generating reference verification sequence...")
+    # Whisper expects 3000 mel frames downsampled to 1500 encoder positions
+    mel = torch.zeros(1, 80, 3000)
+    # Standard Whisper decoder prompt: <|startoftranscript|>, <|en|>, <|transcribe|>, <|notimestamps|>
+    decoder_input_ids = torch.tensor([[50258, 50259, 50359, 50363]])
+
+    with torch.no_grad():
+        out = model(input_features=mel, decoder_input_ids=decoder_input_ids)
+        logits = out.logits[0, -1, :].tolist()
+        predicted_token = int(torch.tensor(logits).argmax().item())
+
+    print(f"[*] Decoder Prompt Tokens: {decoder_input_ids[0].tolist()}")
+    print(f"[*] Next Predicted Token: {predicted_token}")
+    print(f"[*] First 5 Logits: {logits[:5]}")
+
+    reference_meta = {
+        "model_id": model_id,
+        "decoder_input_ids": decoder_input_ids[0].tolist(),
+        "next_predicted_token": predicted_token,
+        "first_5_logits": logits[:5],
+        "mel_shape": [1, 80, 3000],
+        "mel_type": "zeros",
+    }
+    with open(output_dir / "reference.json", "w") as f:
+        json.dump(reference_meta, f, indent=2)
+
+    print(f"[✓] Model '{model_id}' successfully converted to {output_dir}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Convert Hugging Face models to neural-network-engine format.")
-    parser.add_argument("--model", type=str, default="gpt2", choices=["gpt2", "tinyllamas", "minilm", "tinybert"], help="Model architecture")
+    parser.add_argument("--model", type=str, default="gpt2", choices=["gpt2", "tinyllamas", "minilm", "tinybert", "whisper"], help="Model architecture")
     parser.add_argument("--output-dir", type=str, default=None, help="Destination output directory")
     args = parser.parse_args()
 
@@ -406,6 +528,8 @@ def main():
         convert_bert("sentence-transformers/all-MiniLM-L6-v2", output_dir)
     elif args.model == "tinybert":
         convert_tinybert_qa("Intel/dynamic_tinybert", output_dir)
+    elif args.model == "whisper":
+        convert_whisper("openai/whisper-tiny", output_dir)
 
 
 if __name__ == "__main__":

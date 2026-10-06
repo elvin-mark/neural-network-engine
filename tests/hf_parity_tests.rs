@@ -11,6 +11,7 @@ struct ReferenceData {
 }
 
 #[test]
+#[ignore = "requires pre-downloaded HF checkpoints (local verification only)"]
 fn test_hf_gpt2_safetensors_and_generation_parity() {
     let checkpoint_dir = Path::new("checkpoints/gpt2");
     let model_path = checkpoint_dir.join("model.safetensors");
@@ -56,6 +57,7 @@ fn test_hf_gpt2_safetensors_and_generation_parity() {
 }
 
 #[test]
+#[ignore = "requires pre-downloaded HF checkpoints (local verification only)"]
 fn test_hf_tinyllamas_safetensors_and_generation_parity() {
     let checkpoint_dir = Path::new("checkpoints/tinyllamas");
     let model_path = checkpoint_dir.join("model.safetensors");
@@ -109,6 +111,7 @@ struct BertReferenceData {
 }
 
 #[test]
+#[ignore = "requires pre-downloaded HF checkpoints (local verification only)"]
 fn test_hf_minilm_safetensors_and_embeddings_parity() {
     let checkpoint_dir = Path::new("checkpoints/minilm");
     let model_path = checkpoint_dir.join("model.safetensors");
@@ -139,12 +142,20 @@ fn test_hf_minilm_safetensors_and_embeddings_parity() {
     // 4. Run forward pass with input_ids and token_type_ids
     let seq_len = ref_data.input_ids.len();
     let input_ids = Tensor::from_slice(
-        &ref_data.input_ids.iter().map(|&x| x as f32).collect::<Vec<_>>(),
+        &ref_data
+            .input_ids
+            .iter()
+            .map(|&x| x as f32)
+            .collect::<Vec<_>>(),
         &[1, seq_len],
         false,
     );
     let token_type_ids = Tensor::from_slice(
-        &ref_data.token_type_ids.iter().map(|&x| x as f32).collect::<Vec<_>>(),
+        &ref_data
+            .token_type_ids
+            .iter()
+            .map(|&x| x as f32)
+            .collect::<Vec<_>>(),
         &[1, seq_len],
         false,
     );
@@ -160,12 +171,21 @@ fn test_hf_minilm_safetensors_and_embeddings_parity() {
     let pooled_slice = pooled_out.data().to_contiguous();
     let actual_first_5_pooled = &pooled_slice.as_slice()[..5];
 
-    println!("Expected first 5 seq tokens: {:?}", ref_data.first_5_seq_output);
+    println!(
+        "Expected first 5 seq tokens: {:?}",
+        ref_data.first_5_seq_output
+    );
     println!("Actual first 5 seq tokens:   {:?}", actual_first_5_seq);
-    println!("Expected first 5 pooler:     {:?}", ref_data.first_5_pooled_output);
+    println!(
+        "Expected first 5 pooler:     {:?}",
+        ref_data.first_5_pooled_output
+    );
     println!("Actual first 5 pooler:       {:?}", actual_first_5_pooled);
 
-    for (a, b) in actual_first_5_seq.iter().zip(ref_data.first_5_seq_output.iter()) {
+    for (a, b) in actual_first_5_seq
+        .iter()
+        .zip(ref_data.first_5_seq_output.iter())
+    {
         assert!(
             (a - b).abs() < 2e-3,
             "Sequence representation mismatch: {} vs {}",
@@ -174,7 +194,10 @@ fn test_hf_minilm_safetensors_and_embeddings_parity() {
         );
     }
 
-    for (a, b) in actual_first_5_pooled.iter().zip(ref_data.first_5_pooled_output.iter()) {
+    for (a, b) in actual_first_5_pooled
+        .iter()
+        .zip(ref_data.first_5_pooled_output.iter())
+    {
         assert!(
             (a - b).abs() < 2e-3,
             "Pooled representation mismatch: {} vs {}",
@@ -195,6 +218,7 @@ struct QAReferenceData {
 }
 
 #[test]
+#[ignore = "requires pre-downloaded HF checkpoints (local verification only)"]
 fn test_hf_tinybert_safetensors_and_qa_parity() {
     let checkpoint_dir = Path::new("checkpoints/tinybert");
     let model_path = checkpoint_dir.join("model.safetensors");
@@ -225,12 +249,20 @@ fn test_hf_tinybert_safetensors_and_qa_parity() {
     // 4. Run QA forward pass
     let seq_len = ref_data.input_ids.len();
     let input_ids = Tensor::from_slice(
-        &ref_data.input_ids.iter().map(|&x| x as f32).collect::<Vec<_>>(),
+        &ref_data
+            .input_ids
+            .iter()
+            .map(|&x| x as f32)
+            .collect::<Vec<_>>(),
         &[1, seq_len],
         false,
     );
     let token_type_ids = Tensor::from_slice(
-        &ref_data.token_type_ids.iter().map(|&x| x as f32).collect::<Vec<_>>(),
+        &ref_data
+            .token_type_ids
+            .iter()
+            .map(|&x| x as f32)
+            .collect::<Vec<_>>(),
         &[1, seq_len],
         false,
     );
@@ -259,8 +291,14 @@ fn test_hf_tinybert_safetensors_and_qa_parity() {
         .map(|(idx, _)| idx)
         .unwrap_or(0);
 
-    println!("Expected best start/end: ({}, {})", ref_data.best_start, ref_data.best_end);
-    println!("Actual best start/end:   ({}, {})", actual_best_start, actual_best_end);
+    println!(
+        "Expected best start/end: ({}, {})",
+        ref_data.best_start, ref_data.best_end
+    );
+    println!(
+        "Actual best start/end:   ({}, {})",
+        actual_best_start, actual_best_end
+    );
 
     // 5. Assert exact span prediction parity
     assert_eq!(
@@ -272,21 +310,110 @@ fn test_hf_tinybert_safetensors_and_qa_parity() {
         "Best end token index mismatch!"
     );
 
-    for (a, b) in actual_start_slice[..5].iter().zip(ref_data.first_5_start_logits.iter()) {
-        assert!(
-            (a - b).abs() < 5e-2,
-            "Start logit mismatch: {} vs {}",
-            a,
-            b
-        );
+    for (a, b) in actual_start_slice[..5]
+        .iter()
+        .zip(ref_data.first_5_start_logits.iter())
+    {
+        assert!((a - b).abs() < 5e-2, "Start logit mismatch: {} vs {}", a, b);
     }
 
-    for (a, b) in actual_end_slice[..5].iter().zip(ref_data.first_5_end_logits.iter()) {
-        assert!(
-            (a - b).abs() < 5e-2,
-            "End logit mismatch: {} vs {}",
-            a,
-            b
+    for (a, b) in actual_end_slice[..5]
+        .iter()
+        .zip(ref_data.first_5_end_logits.iter())
+    {
+        assert!((a - b).abs() < 5e-2, "End logit mismatch: {} vs {}", a, b);
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct WhisperReferenceData {
+    decoder_input_ids: Vec<usize>,
+    next_predicted_token: usize,
+    first_5_logits: Vec<f32>,
+    mel_shape: Vec<usize>,
+}
+
+#[test]
+#[ignore = "requires pre-downloaded HF checkpoints (local verification only)"]
+fn test_hf_whisper_tiny_safetensors_and_logits_parity() {
+    let checkpoint_dir = Path::new("checkpoints/whisper");
+    let model_path = checkpoint_dir.join("model.safetensors");
+    let ref_path = checkpoint_dir.join("reference.json");
+
+    if !model_path.exists() || !ref_path.exists() {
+        eprintln!(
+            "Skipping test_hf_whisper_tiny_safetensors_and_logits_parity: checkpoint files not found at {:?}",
+            checkpoint_dir
         );
+        return;
+    }
+
+    // 1. Load reference test vectors
+    let ref_file = File::open(&ref_path).expect("Failed to open reference.json");
+    let ref_data: WhisperReferenceData =
+        serde_json::from_reader(BufReader::new(ref_file)).expect("Failed to parse reference.json");
+
+    // 2. Instantiate official Whisper Tiny model
+    let config = WhisperConfig::whisper_tiny();
+    let mut model = Whisper::new(config);
+
+    // 3. Load converted SafeTensors weights
+    model
+        .load_safetensors(&model_path)
+        .expect("Failed to load SafeTensors weights into Whisper");
+
+    // 4. Construct input mel tensor [1, 80, 3000] (zeros)
+    let b = ref_data.mel_shape[0];
+    let n_mels = ref_data.mel_shape[1];
+    let t_audio = ref_data.mel_shape[2];
+    let mel = Tensor::zeros(&[b, n_mels, t_audio], false);
+
+    // Construct decoder prompt tokens [1, T_tokens]
+    let seq_len = ref_data.decoder_input_ids.len();
+    let tokens_raw = RawTensor::from_slice(
+        &ref_data
+            .decoder_input_ids
+            .iter()
+            .map(|&x| x as f32)
+            .collect::<Vec<_>>(),
+        &[1, seq_len],
+    );
+    let tokens = Tensor::new(tokens_raw, false);
+
+    // 5. Run forward model
+    let logits = model
+        .forward_model(&mel, &tokens)
+        .expect("Whisper forward_model failed");
+
+    assert_eq!(logits.shape(), &[1, seq_len, 51865]);
+
+    // Extract logits at the last token position
+    let slice = logits.data().to_contiguous();
+    let num_classes = 51865;
+    let last_token_logits = &slice.as_slice()[(seq_len - 1) * num_classes..seq_len * num_classes];
+
+    let actual_next_token = last_token_logits
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+        .map(|(idx, _)| idx)
+        .unwrap_or(0);
+
+    println!("Expected next token: {}", ref_data.next_predicted_token);
+    println!("Actual next token:   {}", actual_next_token);
+    println!("Expected first 5 logits: {:?}", ref_data.first_5_logits);
+    println!("Actual first 5 logits:   {:?}", &last_token_logits[..5]);
+
+    // 6. Assert exact token prediction parity
+    assert_eq!(
+        actual_next_token, ref_data.next_predicted_token,
+        "Next predicted token mismatch!"
+    );
+
+    for (a, b) in last_token_logits[..5]
+        .iter()
+        .zip(ref_data.first_5_logits.iter())
+    {
+        assert!((a - b).abs() < 5e-2, "Logit mismatch: {} vs {}", a, b);
     }
 }

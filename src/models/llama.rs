@@ -546,7 +546,10 @@ impl Llama2LM {
     }
 
     /// Loads model weights from an in-memory dictionary of tensors.
-    pub fn load_weights(&mut self, weights: &std::collections::HashMap<String, crate::tensor::RawTensor>) -> Result<()> {
+    pub fn load_weights(
+        &mut self,
+        weights: &std::collections::HashMap<String, crate::tensor::RawTensor>,
+    ) -> Result<()> {
         let set_tensor = |target: &mut Tensor, key: &str| -> Result<()> {
             if let Some(raw) = weights.get(key) {
                 target.set_data(raw.clone());
@@ -562,18 +565,45 @@ impl Llama2LM {
         set_tensor(&mut self.tok_embeddings.weight, "tok_embeddings.weight")?;
 
         for (i, layer) in self.layers.iter_mut().enumerate() {
-            set_tensor(&mut layer.attn_norm.weight, &format!("layers.{}.attn_norm.weight", i))?;
+            set_tensor(
+                &mut layer.attn_norm.weight,
+                &format!("layers.{}.attn_norm.weight", i),
+            )?;
 
-            set_tensor(&mut layer.attn.q_proj.weight, &format!("layers.{}.attn.q_proj.weight", i))?;
-            set_tensor(&mut layer.attn.k_proj.weight, &format!("layers.{}.attn.k_proj.weight", i))?;
-            set_tensor(&mut layer.attn.v_proj.weight, &format!("layers.{}.attn.v_proj.weight", i))?;
-            set_tensor(&mut layer.attn.o_proj.weight, &format!("layers.{}.attn.o_proj.weight", i))?;
+            set_tensor(
+                &mut layer.attn.q_proj.weight,
+                &format!("layers.{}.attn.q_proj.weight", i),
+            )?;
+            set_tensor(
+                &mut layer.attn.k_proj.weight,
+                &format!("layers.{}.attn.k_proj.weight", i),
+            )?;
+            set_tensor(
+                &mut layer.attn.v_proj.weight,
+                &format!("layers.{}.attn.v_proj.weight", i),
+            )?;
+            set_tensor(
+                &mut layer.attn.o_proj.weight,
+                &format!("layers.{}.attn.o_proj.weight", i),
+            )?;
 
-            set_tensor(&mut layer.ffn_norm.weight, &format!("layers.{}.ffn_norm.weight", i))?;
+            set_tensor(
+                &mut layer.ffn_norm.weight,
+                &format!("layers.{}.ffn_norm.weight", i),
+            )?;
 
-            set_tensor(&mut layer.ffn.gate_proj.weight, &format!("layers.{}.ffn.gate_proj.weight", i))?;
-            set_tensor(&mut layer.ffn.up_proj.weight, &format!("layers.{}.ffn.up_proj.weight", i))?;
-            set_tensor(&mut layer.ffn.down_proj.weight, &format!("layers.{}.ffn.down_proj.weight", i))?;
+            set_tensor(
+                &mut layer.ffn.gate_proj.weight,
+                &format!("layers.{}.ffn.gate_proj.weight", i),
+            )?;
+            set_tensor(
+                &mut layer.ffn.up_proj.weight,
+                &format!("layers.{}.ffn.up_proj.weight", i),
+            )?;
+            set_tensor(
+                &mut layer.ffn.down_proj.weight,
+                &format!("layers.{}.ffn.down_proj.weight", i),
+            )?;
         }
 
         set_tensor(&mut self.norm.weight, "norm.weight")?;

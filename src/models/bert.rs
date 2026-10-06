@@ -349,7 +349,10 @@ impl BertModel {
     }
 
     /// Loads model weights from an in-memory dictionary of tensors.
-    pub fn load_weights(&mut self, weights: &std::collections::HashMap<String, crate::tensor::RawTensor>) -> Result<()> {
+    pub fn load_weights(
+        &mut self,
+        weights: &std::collections::HashMap<String, crate::tensor::RawTensor>,
+    ) -> Result<()> {
         let set_tensor = |target: &mut Tensor, key: &str| -> Result<()> {
             if let Some(raw) = weights.get(key) {
                 target.set_data(raw.clone());
@@ -371,35 +374,98 @@ impl BertModel {
         };
 
         // Embeddings
-        set_tensor(&mut self.embeddings.word_embeddings.weight, "embeddings.word_embeddings.weight")?;
-        set_tensor(&mut self.embeddings.position_embeddings.weight, "embeddings.position_embeddings.weight")?;
-        set_tensor(&mut self.embeddings.token_type_embeddings.weight, "embeddings.token_type_embeddings.weight")?;
-        set_tensor(&mut self.embeddings.layer_norm.weight, "embeddings.layer_norm.weight")?;
-        set_tensor(&mut self.embeddings.layer_norm.bias, "embeddings.layer_norm.bias")?;
+        set_tensor(
+            &mut self.embeddings.word_embeddings.weight,
+            "embeddings.word_embeddings.weight",
+        )?;
+        set_tensor(
+            &mut self.embeddings.position_embeddings.weight,
+            "embeddings.position_embeddings.weight",
+        )?;
+        set_tensor(
+            &mut self.embeddings.token_type_embeddings.weight,
+            "embeddings.token_type_embeddings.weight",
+        )?;
+        set_tensor(
+            &mut self.embeddings.layer_norm.weight,
+            "embeddings.layer_norm.weight",
+        )?;
+        set_tensor(
+            &mut self.embeddings.layer_norm.bias,
+            "embeddings.layer_norm.bias",
+        )?;
 
         // Encoder layers
         for (i, layer) in self.encoder.layers.iter_mut().enumerate() {
-            set_tensor(&mut layer.attention.q_proj.weight, &format!("encoder.layers.{}.attention.q_proj.weight", i))?;
-            set_opt_tensor(&mut layer.attention.q_proj.bias, &format!("encoder.layers.{}.attention.q_proj.bias", i))?;
-            set_tensor(&mut layer.attention.k_proj.weight, &format!("encoder.layers.{}.attention.k_proj.weight", i))?;
-            set_opt_tensor(&mut layer.attention.k_proj.bias, &format!("encoder.layers.{}.attention.k_proj.bias", i))?;
-            set_tensor(&mut layer.attention.v_proj.weight, &format!("encoder.layers.{}.attention.v_proj.weight", i))?;
-            set_opt_tensor(&mut layer.attention.v_proj.bias, &format!("encoder.layers.{}.attention.v_proj.bias", i))?;
+            set_tensor(
+                &mut layer.attention.q_proj.weight,
+                &format!("encoder.layers.{}.attention.q_proj.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut layer.attention.q_proj.bias,
+                &format!("encoder.layers.{}.attention.q_proj.bias", i),
+            )?;
+            set_tensor(
+                &mut layer.attention.k_proj.weight,
+                &format!("encoder.layers.{}.attention.k_proj.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut layer.attention.k_proj.bias,
+                &format!("encoder.layers.{}.attention.k_proj.bias", i),
+            )?;
+            set_tensor(
+                &mut layer.attention.v_proj.weight,
+                &format!("encoder.layers.{}.attention.v_proj.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut layer.attention.v_proj.bias,
+                &format!("encoder.layers.{}.attention.v_proj.bias", i),
+            )?;
 
-            set_tensor(&mut layer.attention.out_proj.weight, &format!("encoder.layers.{}.attention.out_proj.weight", i))?;
-            set_opt_tensor(&mut layer.attention.out_proj.bias, &format!("encoder.layers.{}.attention.out_proj.bias", i))?;
+            set_tensor(
+                &mut layer.attention.out_proj.weight,
+                &format!("encoder.layers.{}.attention.out_proj.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut layer.attention.out_proj.bias,
+                &format!("encoder.layers.{}.attention.out_proj.bias", i),
+            )?;
 
-            set_tensor(&mut layer.attention_norm.weight, &format!("encoder.layers.{}.attention_norm.weight", i))?;
-            set_tensor(&mut layer.attention_norm.bias, &format!("encoder.layers.{}.attention_norm.bias", i))?;
+            set_tensor(
+                &mut layer.attention_norm.weight,
+                &format!("encoder.layers.{}.attention_norm.weight", i),
+            )?;
+            set_tensor(
+                &mut layer.attention_norm.bias,
+                &format!("encoder.layers.{}.attention_norm.bias", i),
+            )?;
 
-            set_tensor(&mut layer.intermediate.weight, &format!("encoder.layers.{}.intermediate.weight", i))?;
-            set_opt_tensor(&mut layer.intermediate.bias, &format!("encoder.layers.{}.intermediate.bias", i))?;
+            set_tensor(
+                &mut layer.intermediate.weight,
+                &format!("encoder.layers.{}.intermediate.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut layer.intermediate.bias,
+                &format!("encoder.layers.{}.intermediate.bias", i),
+            )?;
 
-            set_tensor(&mut layer.output_dense.weight, &format!("encoder.layers.{}.output_dense.weight", i))?;
-            set_opt_tensor(&mut layer.output_dense.bias, &format!("encoder.layers.{}.output_dense.bias", i))?;
+            set_tensor(
+                &mut layer.output_dense.weight,
+                &format!("encoder.layers.{}.output_dense.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut layer.output_dense.bias,
+                &format!("encoder.layers.{}.output_dense.bias", i),
+            )?;
 
-            set_tensor(&mut layer.output_norm.weight, &format!("encoder.layers.{}.output_norm.weight", i))?;
-            set_tensor(&mut layer.output_norm.bias, &format!("encoder.layers.{}.output_norm.bias", i))?;
+            set_tensor(
+                &mut layer.output_norm.weight,
+                &format!("encoder.layers.{}.output_norm.weight", i),
+            )?;
+            set_tensor(
+                &mut layer.output_norm.bias,
+                &format!("encoder.layers.{}.output_norm.bias", i),
+            )?;
         }
 
         // Pooler (optional if model checkpoint includes pooler)
@@ -450,7 +516,10 @@ impl BertForQuestionAnswering {
     }
 
     /// Loads weights from an in-memory dictionary of tensors.
-    pub fn load_weights(&mut self, weights: &std::collections::HashMap<String, crate::tensor::RawTensor>) -> Result<()> {
+    pub fn load_weights(
+        &mut self,
+        weights: &std::collections::HashMap<String, crate::tensor::RawTensor>,
+    ) -> Result<()> {
         self.bert.load_weights(weights)?;
         if let Some(w) = weights.get("qa_outputs.weight") {
             self.qa_outputs.weight.set_data(w.clone());
@@ -522,7 +591,10 @@ impl BertForSequenceEmbedding {
     }
 
     /// Loads weights from an in-memory dictionary of tensors.
-    pub fn load_weights(&mut self, weights: &std::collections::HashMap<String, crate::tensor::RawTensor>) -> Result<()> {
+    pub fn load_weights(
+        &mut self,
+        weights: &std::collections::HashMap<String, crate::tensor::RawTensor>,
+    ) -> Result<()> {
         self.bert.load_weights(weights)
     }
 

@@ -59,6 +59,22 @@ impl WhisperConfig {
             max_target_positions: 48,
         }
     }
+
+    /// OpenAI Whisper Tiny official configuration (`openai/whisper-tiny`).
+    pub fn whisper_tiny() -> Self {
+        Self {
+            n_mels: 80,
+            d_model: 384,
+            encoder_layers: 4,
+            decoder_layers: 4,
+            encoder_heads: 6,
+            decoder_heads: 6,
+            d_ff: 1536,
+            vocab_size: 51865,
+            max_source_positions: 1500,
+            max_target_positions: 448,
+        }
+    }
 }
 
 /// A single Transformer Encoder Block for Whisper.
@@ -175,6 +191,7 @@ impl Module for WhisperDecoderBlock {
 /// The Whisper Audio Transformer Encoder.
 pub struct WhisperEncoder {
     pub conv1: Conv2d,
+    pub conv2: Conv2d,
     pub pos_embed: Tensor,
     pub blocks: Vec<WhisperEncoderBlock>,
     pub ln_post: LayerNorm,
@@ -183,11 +200,22 @@ pub struct WhisperEncoder {
 
 impl WhisperEncoder {
     pub fn new(config: &WhisperConfig) -> Self {
-        // Conv downsampling: kernel (n_mels, 3), stride (1, 2), padding (0, 1)
+        // Conv1: in_channels=n_mels, out_channels=d_model, kernel=(1, 3), stride=(1, 1), padding=(0, 1)
         let conv1 = Conv2d::with_options(
-            1,
+            config.n_mels,
             config.d_model,
-            (config.n_mels, 3),
+            (1, 3),
+            (1, 1),
+            (0, 1),
+            (1, 1),
+            true,
+        );
+
+        // Conv2: in_channels=d_model, out_channels=d_model, kernel=(1, 3), stride=(1, 2), padding=(0, 1)
+        let conv2 = Conv2d::with_options(
+            config.d_model,
+            config.d_model,
+            (1, 3),
             (1, 2),
             (0, 1),
             (1, 1),
@@ -209,6 +237,7 @@ impl WhisperEncoder {
 
         Self {
             conv1,
+            conv2,
             pos_embed,
             blocks,
             ln_post: LayerNorm::new(config.d_model),
@@ -234,15 +263,16 @@ impl WhisperEncoder {
             });
         }
 
-        // 1. Reshape to 4D [B, 1, n_mels, T] for 2D convolution
-        let x_4d = mel.reshape(&[b, 1, n_mels, t])?;
+        // 1. Reshape to 4D [B, n_mels, 1, T] for 2D convolution
+        let x_4d = mel.reshape(&[b, n_mels, 1, t])?;
 
-        // 2. Conv downsampling -> [B, d_model, 1, T_enc]
-        let conv_out = self.conv1.forward(&x_4d)?.gelu()?;
-        let t_enc = conv_out.shape()[3];
+        // 2. Conv downsampling: conv1 + GELU + conv2 + GELU -> [B, d_model, 1, T_enc]
+        let c1 = self.conv1.forward(&x_4d)?.gelu()?;
+        let c2 = self.conv2.forward(&c1)?.gelu()?;
+        let t_enc = c2.shape()[3];
 
         // 3. Reshape & transpose to [B, T_enc, d_model]
-        let mut x = conv_out
+        let mut x = c2
             .reshape(&[b, self.config.d_model, t_enc])?
             .transpose(1, 2)?;
 
@@ -268,6 +298,7 @@ impl Module for WhisperEncoder {
     fn parameters(&self) -> Vec<Tensor> {
         let mut params = Vec::new();
         params.extend(self.conv1.parameters());
+        params.extend(self.conv2.parameters());
         params.push(self.pos_embed.clone());
         for block in &self.blocks {
             params.extend(block.parameters());
@@ -449,6 +480,268 @@ impl Whisper {
 
         tokenizer.decode(generated_slice)
     }
+
+    /// Loads model weights from an in-memory dictionary of tensors.
+    pub fn load_weights(
+        &mut self,
+        weights: &std::collections::HashMap<String, crate::tensor::RawTensor>,
+    ) -> Result<()> {
+        let set_tensor = |target: &mut Tensor, key: &str| -> Result<()> {
+            if let Some(raw) = weights.get(key) {
+                target.set_data(raw.clone());
+                Ok(())
+            } else {
+                Err(EngineError::InvalidArgument(format!(
+                    "Missing expected weight '{}' in weights map",
+                    key
+                )))
+            }
+        };
+
+        let set_opt_tensor = |target: &mut Option<Tensor>, key: &str| -> Result<()> {
+            if let Some(ref mut t) = target {
+                set_tensor(t, key)
+            } else {
+                Ok(())
+            }
+        };
+
+        // Encoder
+        set_tensor(&mut self.encoder.conv1.weight, "encoder.conv1.weight")?;
+        set_opt_tensor(&mut self.encoder.conv1.bias, "encoder.conv1.bias")?;
+        set_tensor(&mut self.encoder.conv2.weight, "encoder.conv2.weight")?;
+        set_opt_tensor(&mut self.encoder.conv2.bias, "encoder.conv2.bias")?;
+        set_tensor(
+            &mut self.encoder.pos_embed,
+            "encoder.embed_positions.weight",
+        )?;
+        set_tensor(
+            &mut self.encoder.ln_post.weight,
+            "encoder.layer_norm.weight",
+        )?;
+        set_tensor(&mut self.encoder.ln_post.bias, "encoder.layer_norm.bias")?;
+
+        for (i, block) in self.encoder.blocks.iter_mut().enumerate() {
+            set_tensor(
+                &mut block.self_attn.q_proj.weight,
+                &format!("encoder.layers.{}.self_attn.q_proj.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut block.self_attn.q_proj.bias,
+                &format!("encoder.layers.{}.self_attn.q_proj.bias", i),
+            )?;
+            set_tensor(
+                &mut block.self_attn.k_proj.weight,
+                &format!("encoder.layers.{}.self_attn.k_proj.weight", i),
+            )?;
+            if weights.contains_key(&format!("encoder.layers.{}.self_attn.k_proj.bias", i)) {
+                set_opt_tensor(
+                    &mut block.self_attn.k_proj.bias,
+                    &format!("encoder.layers.{}.self_attn.k_proj.bias", i),
+                )?;
+            } else {
+                block.self_attn.k_proj.bias = None;
+            }
+            set_tensor(
+                &mut block.self_attn.v_proj.weight,
+                &format!("encoder.layers.{}.self_attn.v_proj.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut block.self_attn.v_proj.bias,
+                &format!("encoder.layers.{}.self_attn.v_proj.bias", i),
+            )?;
+            set_tensor(
+                &mut block.self_attn.out_proj.weight,
+                &format!("encoder.layers.{}.self_attn.out_proj.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut block.self_attn.out_proj.bias,
+                &format!("encoder.layers.{}.self_attn.out_proj.bias", i),
+            )?;
+
+            set_tensor(
+                &mut block.self_attn_ln.weight,
+                &format!("encoder.layers.{}.self_attn_layer_norm.weight", i),
+            )?;
+            set_tensor(
+                &mut block.self_attn_ln.bias,
+                &format!("encoder.layers.{}.self_attn_layer_norm.bias", i),
+            )?;
+
+            set_tensor(
+                &mut block.mlp_fc1.weight,
+                &format!("encoder.layers.{}.fc1.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut block.mlp_fc1.bias,
+                &format!("encoder.layers.{}.fc1.bias", i),
+            )?;
+            set_tensor(
+                &mut block.mlp_fc2.weight,
+                &format!("encoder.layers.{}.fc2.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut block.mlp_fc2.bias,
+                &format!("encoder.layers.{}.fc2.bias", i),
+            )?;
+
+            set_tensor(
+                &mut block.mlp_ln.weight,
+                &format!("encoder.layers.{}.final_layer_norm.weight", i),
+            )?;
+            set_tensor(
+                &mut block.mlp_ln.bias,
+                &format!("encoder.layers.{}.final_layer_norm.bias", i),
+            )?;
+        }
+
+        // Decoder
+        set_tensor(
+            &mut self.decoder.token_embedding.weight,
+            "decoder.embed_tokens.weight",
+        )?;
+        set_tensor(
+            &mut self.decoder.pos_embed,
+            "decoder.embed_positions.weight",
+        )?;
+        set_tensor(
+            &mut self.decoder.ln_post.weight,
+            "decoder.layer_norm.weight",
+        )?;
+        set_tensor(&mut self.decoder.ln_post.bias, "decoder.layer_norm.bias")?;
+        set_tensor(&mut self.decoder.lm_head.weight, "decoder.lm_head.weight")?;
+        if weights.contains_key("decoder.lm_head.bias") {
+            set_opt_tensor(&mut self.decoder.lm_head.bias, "decoder.lm_head.bias")?;
+        }
+
+        for (i, block) in self.decoder.blocks.iter_mut().enumerate() {
+            set_tensor(
+                &mut block.self_attn.q_proj.weight,
+                &format!("decoder.layers.{}.self_attn.q_proj.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut block.self_attn.q_proj.bias,
+                &format!("decoder.layers.{}.self_attn.q_proj.bias", i),
+            )?;
+            set_tensor(
+                &mut block.self_attn.k_proj.weight,
+                &format!("decoder.layers.{}.self_attn.k_proj.weight", i),
+            )?;
+            if weights.contains_key(&format!("decoder.layers.{}.self_attn.k_proj.bias", i)) {
+                set_opt_tensor(
+                    &mut block.self_attn.k_proj.bias,
+                    &format!("decoder.layers.{}.self_attn.k_proj.bias", i),
+                )?;
+            } else {
+                block.self_attn.k_proj.bias = None;
+            }
+            set_tensor(
+                &mut block.self_attn.v_proj.weight,
+                &format!("decoder.layers.{}.self_attn.v_proj.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut block.self_attn.v_proj.bias,
+                &format!("decoder.layers.{}.self_attn.v_proj.bias", i),
+            )?;
+            set_tensor(
+                &mut block.self_attn.out_proj.weight,
+                &format!("decoder.layers.{}.self_attn.out_proj.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut block.self_attn.out_proj.bias,
+                &format!("decoder.layers.{}.self_attn.out_proj.bias", i),
+            )?;
+
+            set_tensor(
+                &mut block.self_attn_ln.weight,
+                &format!("decoder.layers.{}.self_attn_layer_norm.weight", i),
+            )?;
+            set_tensor(
+                &mut block.self_attn_ln.bias,
+                &format!("decoder.layers.{}.self_attn_layer_norm.bias", i),
+            )?;
+
+            set_tensor(
+                &mut block.cross_attn.q_proj.weight,
+                &format!("decoder.layers.{}.encoder_attn.q_proj.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut block.cross_attn.q_proj.bias,
+                &format!("decoder.layers.{}.encoder_attn.q_proj.bias", i),
+            )?;
+            set_tensor(
+                &mut block.cross_attn.k_proj.weight,
+                &format!("decoder.layers.{}.encoder_attn.k_proj.weight", i),
+            )?;
+            if weights.contains_key(&format!("decoder.layers.{}.encoder_attn.k_proj.bias", i)) {
+                set_opt_tensor(
+                    &mut block.cross_attn.k_proj.bias,
+                    &format!("decoder.layers.{}.encoder_attn.k_proj.bias", i),
+                )?;
+            } else {
+                block.cross_attn.k_proj.bias = None;
+            }
+            set_tensor(
+                &mut block.cross_attn.v_proj.weight,
+                &format!("decoder.layers.{}.encoder_attn.v_proj.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut block.cross_attn.v_proj.bias,
+                &format!("decoder.layers.{}.encoder_attn.v_proj.bias", i),
+            )?;
+            set_tensor(
+                &mut block.cross_attn.out_proj.weight,
+                &format!("decoder.layers.{}.encoder_attn.out_proj.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut block.cross_attn.out_proj.bias,
+                &format!("decoder.layers.{}.encoder_attn.out_proj.bias", i),
+            )?;
+
+            set_tensor(
+                &mut block.cross_attn_ln.weight,
+                &format!("decoder.layers.{}.encoder_attn_layer_norm.weight", i),
+            )?;
+            set_tensor(
+                &mut block.cross_attn_ln.bias,
+                &format!("decoder.layers.{}.encoder_attn_layer_norm.bias", i),
+            )?;
+
+            set_tensor(
+                &mut block.mlp_fc1.weight,
+                &format!("decoder.layers.{}.fc1.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut block.mlp_fc1.bias,
+                &format!("decoder.layers.{}.fc1.bias", i),
+            )?;
+            set_tensor(
+                &mut block.mlp_fc2.weight,
+                &format!("decoder.layers.{}.fc2.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut block.mlp_fc2.bias,
+                &format!("decoder.layers.{}.fc2.bias", i),
+            )?;
+
+            set_tensor(
+                &mut block.mlp_ln.weight,
+                &format!("decoder.layers.{}.final_layer_norm.weight", i),
+            )?;
+            set_tensor(
+                &mut block.mlp_ln.bias,
+                &format!("decoder.layers.{}.final_layer_norm.bias", i),
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Loads model weights directly from a SafeTensors file.
+    pub fn load_safetensors<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<()> {
+        let weights = crate::io::load_safetensors(path)?;
+        self.load_weights(&weights)
+    }
 }
 
 impl Module for Whisper {
@@ -504,6 +797,7 @@ mod tests {
         assert!(mel.grad().is_some());
         assert_eq!(mel.grad().unwrap().shape(), &[2, 32, 20]);
         assert!(whisper.encoder.conv1.weight.grad().is_some());
+        assert!(whisper.encoder.conv2.weight.grad().is_some());
         assert!(whisper.decoder.lm_head.weight.grad().is_some());
     }
 }

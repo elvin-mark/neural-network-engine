@@ -340,7 +340,10 @@ impl GPT2Model {
     }
 
     /// Loads model weights from an in-memory dictionary of tensors.
-    pub fn load_weights(&mut self, weights: &std::collections::HashMap<String, crate::tensor::RawTensor>) -> Result<()> {
+    pub fn load_weights(
+        &mut self,
+        weights: &std::collections::HashMap<String, crate::tensor::RawTensor>,
+    ) -> Result<()> {
         let set_tensor = |target: &mut Tensor, key: &str| -> Result<()> {
             if let Some(raw) = weights.get(key) {
                 target.set_data(raw.clone());
@@ -368,24 +371,57 @@ impl GPT2Model {
             set_tensor(&mut block.ln_1.weight, &format!("blocks.{}.ln_1.weight", i))?;
             set_tensor(&mut block.ln_1.bias, &format!("blocks.{}.ln_1.bias", i))?;
 
-            set_tensor(&mut block.attn.q_proj.weight, &format!("blocks.{}.attn.q_proj.weight", i))?;
-            set_opt_tensor(&mut block.attn.q_proj.bias, &format!("blocks.{}.attn.q_proj.bias", i))?;
-            set_tensor(&mut block.attn.k_proj.weight, &format!("blocks.{}.attn.k_proj.weight", i))?;
-            set_opt_tensor(&mut block.attn.k_proj.bias, &format!("blocks.{}.attn.k_proj.bias", i))?;
-            set_tensor(&mut block.attn.v_proj.weight, &format!("blocks.{}.attn.v_proj.weight", i))?;
-            set_opt_tensor(&mut block.attn.v_proj.bias, &format!("blocks.{}.attn.v_proj.bias", i))?;
+            set_tensor(
+                &mut block.attn.q_proj.weight,
+                &format!("blocks.{}.attn.q_proj.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut block.attn.q_proj.bias,
+                &format!("blocks.{}.attn.q_proj.bias", i),
+            )?;
+            set_tensor(
+                &mut block.attn.k_proj.weight,
+                &format!("blocks.{}.attn.k_proj.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut block.attn.k_proj.bias,
+                &format!("blocks.{}.attn.k_proj.bias", i),
+            )?;
+            set_tensor(
+                &mut block.attn.v_proj.weight,
+                &format!("blocks.{}.attn.v_proj.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut block.attn.v_proj.bias,
+                &format!("blocks.{}.attn.v_proj.bias", i),
+            )?;
 
-            set_tensor(&mut block.attn.out_proj.weight, &format!("blocks.{}.attn.out_proj.weight", i))?;
-            set_opt_tensor(&mut block.attn.out_proj.bias, &format!("blocks.{}.attn.out_proj.bias", i))?;
+            set_tensor(
+                &mut block.attn.out_proj.weight,
+                &format!("blocks.{}.attn.out_proj.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut block.attn.out_proj.bias,
+                &format!("blocks.{}.attn.out_proj.bias", i),
+            )?;
 
             set_tensor(&mut block.ln_2.weight, &format!("blocks.{}.ln_2.weight", i))?;
             set_tensor(&mut block.ln_2.bias, &format!("blocks.{}.ln_2.bias", i))?;
 
-            set_tensor(&mut block.mlp_fc.weight, &format!("blocks.{}.mlp_fc.weight", i))?;
+            set_tensor(
+                &mut block.mlp_fc.weight,
+                &format!("blocks.{}.mlp_fc.weight", i),
+            )?;
             set_opt_tensor(&mut block.mlp_fc.bias, &format!("blocks.{}.mlp_fc.bias", i))?;
 
-            set_tensor(&mut block.mlp_proj.weight, &format!("blocks.{}.mlp_proj.weight", i))?;
-            set_opt_tensor(&mut block.mlp_proj.bias, &format!("blocks.{}.mlp_proj.bias", i))?;
+            set_tensor(
+                &mut block.mlp_proj.weight,
+                &format!("blocks.{}.mlp_proj.weight", i),
+            )?;
+            set_opt_tensor(
+                &mut block.mlp_proj.bias,
+                &format!("blocks.{}.mlp_proj.bias", i),
+            )?;
         }
 
         set_tensor(&mut self.ln_f.weight, "ln_f.weight")?;

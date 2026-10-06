@@ -337,7 +337,10 @@ impl ModernBertModel {
     }
 
     /// Loads model weights from an in-memory dictionary of tensors.
-    pub fn load_weights(&mut self, weights: &std::collections::HashMap<String, crate::tensor::RawTensor>) -> Result<()> {
+    pub fn load_weights(
+        &mut self,
+        weights: &std::collections::HashMap<String, crate::tensor::RawTensor>,
+    ) -> Result<()> {
         let set_tensor = |target: &mut Tensor, key: &str| -> Result<()> {
             if let Some(raw) = weights.get(key) {
                 target.set_data(raw.clone());
@@ -353,21 +356,51 @@ impl ModernBertModel {
         set_tensor(&mut self.embeddings.weight, "embeddings.weight")?;
 
         for (i, layer) in self.encoder.layers.iter_mut().enumerate() {
-            set_tensor(&mut layer.attn_norm.weight, &format!("encoder.layers.{}.attn_norm.weight", i))?;
+            set_tensor(
+                &mut layer.attn_norm.weight,
+                &format!("encoder.layers.{}.attn_norm.weight", i),
+            )?;
 
-            set_tensor(&mut layer.attention.q_proj.weight, &format!("encoder.layers.{}.attention.q_proj.weight", i))?;
-            set_tensor(&mut layer.attention.k_proj.weight, &format!("encoder.layers.{}.attention.k_proj.weight", i))?;
-            set_tensor(&mut layer.attention.v_proj.weight, &format!("encoder.layers.{}.attention.v_proj.weight", i))?;
-            set_tensor(&mut layer.attention.out_proj.weight, &format!("encoder.layers.{}.attention.out_proj.weight", i))?;
+            set_tensor(
+                &mut layer.attention.q_proj.weight,
+                &format!("encoder.layers.{}.attention.q_proj.weight", i),
+            )?;
+            set_tensor(
+                &mut layer.attention.k_proj.weight,
+                &format!("encoder.layers.{}.attention.k_proj.weight", i),
+            )?;
+            set_tensor(
+                &mut layer.attention.v_proj.weight,
+                &format!("encoder.layers.{}.attention.v_proj.weight", i),
+            )?;
+            set_tensor(
+                &mut layer.attention.out_proj.weight,
+                &format!("encoder.layers.{}.attention.out_proj.weight", i),
+            )?;
 
-            set_tensor(&mut layer.mlp_norm.weight, &format!("encoder.layers.{}.mlp_norm.weight", i))?;
+            set_tensor(
+                &mut layer.mlp_norm.weight,
+                &format!("encoder.layers.{}.mlp_norm.weight", i),
+            )?;
 
-            set_tensor(&mut layer.mlp.gate_proj.weight, &format!("encoder.layers.{}.mlp.gate_proj.weight", i))?;
-            set_tensor(&mut layer.mlp.up_proj.weight, &format!("encoder.layers.{}.mlp.up_proj.weight", i))?;
-            set_tensor(&mut layer.mlp.down_proj.weight, &format!("encoder.layers.{}.mlp.down_proj.weight", i))?;
+            set_tensor(
+                &mut layer.mlp.gate_proj.weight,
+                &format!("encoder.layers.{}.mlp.gate_proj.weight", i),
+            )?;
+            set_tensor(
+                &mut layer.mlp.up_proj.weight,
+                &format!("encoder.layers.{}.mlp.up_proj.weight", i),
+            )?;
+            set_tensor(
+                &mut layer.mlp.down_proj.weight,
+                &format!("encoder.layers.{}.mlp.down_proj.weight", i),
+            )?;
         }
 
-        set_tensor(&mut self.encoder.final_norm.weight, "encoder.final_norm.weight")?;
+        set_tensor(
+            &mut self.encoder.final_norm.weight,
+            "encoder.final_norm.weight",
+        )?;
 
         Ok(())
     }
