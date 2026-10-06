@@ -44,6 +44,21 @@ impl LlamaConfig {
             rope_theta: 10000.0,
         }
     }
+
+    /// Karpathy TinyStories LLaMA 15M configuration (`Xenova/llama2.c-stories15M` / `karpathy/tinyllamas`).
+    pub fn stories15m() -> Self {
+        Self {
+            vocab_size: 32000,
+            d_model: 288,
+            hidden_dim: 768,
+            num_heads: 6,
+            num_kv_heads: 6,
+            num_layers: 6,
+            max_seq_len: 256,
+            norm_eps: 1e-5,
+            rope_theta: 10000.0,
+        }
+    }
 }
 
 /// Rotary Position Embedding (RoPE) helper table.
@@ -528,6 +543,49 @@ impl Llama2LM {
         params.extend(self.norm.parameters());
         params.extend(self.lm_head.parameters());
         params
+    }
+
+    /// Loads model weights from an in-memory dictionary of tensors.
+    pub fn load_weights(&mut self, weights: &std::collections::HashMap<String, crate::tensor::RawTensor>) -> Result<()> {
+        let set_tensor = |target: &mut Tensor, key: &str| -> Result<()> {
+            if let Some(raw) = weights.get(key) {
+                target.set_data(raw.clone());
+                Ok(())
+            } else {
+                Err(EngineError::InvalidArgument(format!(
+                    "Missing expected weight '{}' in weights map",
+                    key
+                )))
+            }
+        };
+
+        set_tensor(&mut self.tok_embeddings.weight, "tok_embeddings.weight")?;
+
+        for (i, layer) in self.layers.iter_mut().enumerate() {
+            set_tensor(&mut layer.attn_norm.weight, &format!("layers.{}.attn_norm.weight", i))?;
+
+            set_tensor(&mut layer.attn.q_proj.weight, &format!("layers.{}.attn.q_proj.weight", i))?;
+            set_tensor(&mut layer.attn.k_proj.weight, &format!("layers.{}.attn.k_proj.weight", i))?;
+            set_tensor(&mut layer.attn.v_proj.weight, &format!("layers.{}.attn.v_proj.weight", i))?;
+            set_tensor(&mut layer.attn.o_proj.weight, &format!("layers.{}.attn.o_proj.weight", i))?;
+
+            set_tensor(&mut layer.ffn_norm.weight, &format!("layers.{}.ffn_norm.weight", i))?;
+
+            set_tensor(&mut layer.ffn.gate_proj.weight, &format!("layers.{}.ffn.gate_proj.weight", i))?;
+            set_tensor(&mut layer.ffn.up_proj.weight, &format!("layers.{}.ffn.up_proj.weight", i))?;
+            set_tensor(&mut layer.ffn.down_proj.weight, &format!("layers.{}.ffn.down_proj.weight", i))?;
+        }
+
+        set_tensor(&mut self.norm.weight, "norm.weight")?;
+        set_tensor(&mut self.lm_head.weight, "lm_head.weight")?;
+
+        Ok(())
+    }
+
+    /// Loads model weights directly from a SafeTensors file.
+    pub fn load_safetensors<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<()> {
+        let weights = crate::io::load_safetensors(path)?;
+        self.load_weights(&weights)
     }
 }
 

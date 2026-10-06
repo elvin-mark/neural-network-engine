@@ -129,15 +129,90 @@ def convert_gpt2(model_id: str, output_dir: Path):
     print(f"[✓] Model '{model_id}' successfully converted to {output_dir}")
 
 
+def convert_tinyllamas(model_id: str, output_dir: Path):
+    print(f"[*] Loading Hugging Face TinyStories LLaMA model '{model_id}'...")
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    model = AutoModelForCausalLM.from_pretrained(model_id)
+    model.eval()
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print("[*] Transforming state_dict for neural-network-engine Llama2LM...")
+    transformed_weights = {}
+
+    # Token embeddings & lm_head
+    transformed_weights["tok_embeddings.weight"] = model.model.embed_tokens.weight.detach().to(torch.float32).contiguous()
+    transformed_weights["lm_head.weight"] = model.lm_head.weight.detach().to(torch.float32).clone().contiguous()
+    transformed_weights["norm.weight"] = model.model.norm.weight.detach().to(torch.float32).contiguous()
+
+    # Cascade through LLaMA decoder layers
+    for i, layer in enumerate(model.model.layers):
+        prefix = f"layers.{i}"
+
+        # Attention RMSNorm
+        transformed_weights[f"{prefix}.attn_norm.weight"] = layer.input_layernorm.weight.detach().to(torch.float32).contiguous()
+
+        # Attention projections (q, k, v, o)
+        transformed_weights[f"{prefix}.attn.q_proj.weight"] = layer.self_attn.q_proj.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.attn.k_proj.weight"] = layer.self_attn.k_proj.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.attn.v_proj.weight"] = layer.self_attn.v_proj.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.attn.o_proj.weight"] = layer.self_attn.o_proj.weight.detach().to(torch.float32).contiguous()
+
+        # FFN RMSNorm
+        transformed_weights[f"{prefix}.ffn_norm.weight"] = layer.post_attention_layernorm.weight.detach().to(torch.float32).contiguous()
+
+        # SwiGLU MLP: gate_proj, up_proj, down_proj
+        transformed_weights[f"{prefix}.ffn.gate_proj.weight"] = layer.mlp.gate_proj.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.ffn.up_proj.weight"] = layer.mlp.up_proj.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.ffn.down_proj.weight"] = layer.mlp.down_proj.weight.detach().to(torch.float32).contiguous()
+
+    weights_path = output_dir / "model.safetensors"
+    print(f"[*] Saving SafeTensors weights to {weights_path}...")
+    save_file(transformed_weights, str(weights_path))
+
+    tok_path = output_dir / "tokenizer.json"
+    print(f"[*] Saving Tokenizer to {tok_path}...")
+    tokenizer.save_pretrained(str(output_dir))
+
+    # Reference prompt and generation
+    print("[*] Generating reference verification sequence...")
+    prompt = "Once upon a time"
+    input_ids = tokenizer(prompt, return_tensors="pt").input_ids
+    with torch.no_grad():
+        gen_ids = model.generate(input_ids, max_new_tokens=5, do_sample=False)[0].tolist()
+
+    gen_text = tokenizer.decode(gen_ids)
+    print(f"[*] Reference Prompt: {repr(prompt)}")
+    print(f"[*] Reference Generated IDs: {gen_ids}")
+    print(f"[*] Reference Output Text: {repr(gen_text)}")
+
+    reference_meta = {
+        "model_id": model_id,
+        "prompt": prompt,
+        "input_ids": input_ids[0].tolist(),
+        "generated_ids": gen_ids,
+        "generated_text": gen_text,
+    }
+    with open(output_dir / "reference.json", "w") as f:
+        json.dump(reference_meta, f, indent=2)
+
+    print(f"[✓] Model '{model_id}' successfully converted to {output_dir}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Convert Hugging Face models to neural-network-engine format.")
-    parser.add_argument("--model", type=str, default="gpt2", choices=["gpt2"], help="Model architecture")
-    parser.add_argument("--output-dir", type=str, default="checkpoints/gpt2", help="Destination output directory")
+    parser.add_argument("--model", type=str, default="gpt2", choices=["gpt2", "tinyllamas"], help="Model architecture")
+    parser.add_argument("--output-dir", type=str, default=None, help="Destination output directory")
     args = parser.parse_args()
+
+    if args.output_dir is None:
+        args.output_dir = f"checkpoints/{args.model}"
 
     output_dir = Path(args.output_dir)
     if args.model == "gpt2":
         convert_gpt2("gpt2", output_dir)
+    elif args.model == "tinyllamas":
+        convert_tinyllamas("Xenova/llama2.c-stories15M", output_dir)
 
 
 if __name__ == "__main__":
