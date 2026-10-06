@@ -1,5 +1,6 @@
 /target
 /data
+/checkpoints
 *.safetensors
 
 # Python artifacts

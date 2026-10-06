@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+"""
+Convert Hugging Face models and tokenizers into Neural Network Engine format.
+
+Supported models:
+- gpt2 (OpenAI GPT-2 124M)
+
+Outputs:
+- <output_dir>/model.safetensors: Transformed weights in F32 format.
+- <output_dir>/tokenizer.json: Tokenizer configuration and vocabulary.
+- <output_dir>/reference.json: Reference prompt, input token IDs, and generated token IDs.
+"""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from safetensors.torch import save_file
+
+
+def convert_gpt2(model_id: str, output_dir: Path):
+    print(f"[*] Loading Hugging Face GPT-2 model '{model_id}'...")
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    model = AutoModelForCausalLM.from_pretrained(model_id)
+    model.eval()
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Transform weights to match neural-network-engine GPT2Model naming & Conv1D transpose
+    print("[*] Transforming state_dict for neural-network-engine...")
+    transformed_weights = {}
+
+    # Token embeddings & position embeddings
+    transformed_weights["wte.weight"] = model.transformer.wte.weight.detach().to(torch.float32).contiguous()
+    transformed_weights["wpe.weight"] = model.transformer.wpe.weight.detach().to(torch.float32).contiguous()
+
+    # Cascade through transformer decoder blocks
+    num_layers = len(model.transformer.h)
+    d_model = model.config.n_embd
+
+    for i in range(num_layers):
+        hf_layer = model.transformer.h[i]
+        prefix = f"blocks.{i}"
+
+        # LayerNorm 1
+        transformed_weights[f"{prefix}.ln_1.weight"] = hf_layer.ln_1.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.ln_1.bias"] = hf_layer.ln_1.bias.detach().to(torch.float32).contiguous()
+
+        # MultiHeadAttention: HF c_attn is Conv1D [d_model, 3 * d_model]
+        # In our engine: q_proj, k_proj, v_proj are Linear layers [d_model, d_model] -> weight [out_features, in_features] = [d_model, d_model]
+        c_attn_w = hf_layer.attn.c_attn.weight.detach().to(torch.float32)  # [d_model, 3 * d_model]
+        c_attn_b = hf_layer.attn.c_attn.bias.detach().to(torch.float32)    # [3 * d_model]
+
+        # c_attn.weight in Conv1D maps x @ W + b. For Linear (y = x @ W^T), W_linear = W_conv1d.T
+        c_attn_w_t = c_attn_w.t() # [3 * d_model, d_model]
+        q_w, k_w, v_w = c_attn_w_t.split(d_model, dim=0)
+        q_b, k_b, v_b = c_attn_b.split(d_model, dim=0)
+
+        transformed_weights[f"{prefix}.attn.q_proj.weight"] = q_w.contiguous()
+        transformed_weights[f"{prefix}.attn.q_proj.bias"] = q_b.contiguous()
+        transformed_weights[f"{prefix}.attn.k_proj.weight"] = k_w.contiguous()
+        transformed_weights[f"{prefix}.attn.k_proj.bias"] = k_b.contiguous()
+        transformed_weights[f"{prefix}.attn.v_proj.weight"] = v_w.contiguous()
+        transformed_weights[f"{prefix}.attn.v_proj.bias"] = v_b.contiguous()
+
+        # Attention out_proj (c_proj in HF)
+        c_proj_w = hf_layer.attn.c_proj.weight.detach().to(torch.float32).t()
+        c_proj_b = hf_layer.attn.c_proj.bias.detach().to(torch.float32)
+        transformed_weights[f"{prefix}.attn.out_proj.weight"] = c_proj_w.contiguous()
+        transformed_weights[f"{prefix}.attn.out_proj.bias"] = c_proj_b.contiguous()
+
+        # LayerNorm 2
+        transformed_weights[f"{prefix}.ln_2.weight"] = hf_layer.ln_2.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.ln_2.bias"] = hf_layer.ln_2.bias.detach().to(torch.float32).contiguous()
+
+        # MLP: c_fc and c_proj
+        mlp_fc_w = hf_layer.mlp.c_fc.weight.detach().to(torch.float32).t()
+        mlp_fc_b = hf_layer.mlp.c_fc.bias.detach().to(torch.float32)
+        transformed_weights[f"{prefix}.mlp_fc.weight"] = mlp_fc_w.contiguous()
+        transformed_weights[f"{prefix}.mlp_fc.bias"] = mlp_fc_b.contiguous()
+
+        mlp_proj_w = hf_layer.mlp.c_proj.weight.detach().to(torch.float32).t()
+        mlp_proj_b = hf_layer.mlp.c_proj.bias.detach().to(torch.float32)
+        transformed_weights[f"{prefix}.mlp_proj.weight"] = mlp_proj_w.contiguous()
+        transformed_weights[f"{prefix}.mlp_proj.bias"] = mlp_proj_b.contiguous()
+
+    # Final LayerNorm
+    transformed_weights["ln_f.weight"] = model.transformer.ln_f.weight.detach().to(torch.float32).contiguous()
+    transformed_weights["ln_f.bias"] = model.transformer.ln_f.bias.detach().to(torch.float32).contiguous()
+
+    # LM Head
+    transformed_weights["lm_head.weight"] = model.lm_head.weight.detach().to(torch.float32).clone().contiguous()
+
+    weights_path = output_dir / "model.safetensors"
+    print(f"[*] Saving SafeTensors weights to {weights_path}...")
+    save_file(transformed_weights, str(weights_path))
+
+    # 2. Save Tokenizer
+    tok_path = output_dir / "tokenizer.json"
+    print(f"[*] Saving Tokenizer to {tok_path}...")
+    tokenizer.save_pretrained(str(output_dir))
+
+    # 3. Generate reference test vectors for parity verification
+    print("[*] Generating reference verification sequence...")
+    prompt = "Hello, my name is"
+    input_ids = tokenizer(prompt, return_tensors="pt").input_ids
+    with torch.no_grad():
+        out = model(input_ids)
+        logits_first_step = out.logits[:, -1, :].tolist()
+        gen_ids = model.generate(input_ids, max_new_tokens=5, do_sample=False)[0].tolist()
+
+    gen_text = tokenizer.decode(gen_ids)
+    print(f"[*] Reference Prompt: {repr(prompt)}")
+    print(f"[*] Reference Generated IDs: {gen_ids}")
+    print(f"[*] Reference Output Text: {repr(gen_text)}")
+
+    reference_meta = {
+        "model_id": model_id,
+        "prompt": prompt,
+        "input_ids": input_ids[0].tolist(),
+        "generated_ids": gen_ids,
+        "generated_text": gen_text,
+    }
+    with open(output_dir / "reference.json", "w") as f:
+        json.dump(reference_meta, f, indent=2)
+
+    print(f"[✓] Model '{model_id}' successfully converted to {output_dir}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Convert Hugging Face models to neural-network-engine format.")
+    parser.add_argument("--model", type=str, default="gpt2", choices=["gpt2"], help="Model architecture")
+    parser.add_argument("--output-dir", type=str, default="checkpoints/gpt2", help="Destination output directory")
+    args = parser.parse_args()
+
+    output_dir = Path(args.output_dir)
+    if args.model == "gpt2":
+        convert_gpt2("gpt2", output_dir)
+
+
+if __name__ == "__main__":
+    main()
