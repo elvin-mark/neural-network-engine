@@ -50,3 +50,9 @@ pub enum EngineError {
     #[error("Tensor is not contiguous in memory")]
     NonContiguousTensor,
 }
+
+impl From<std::io::Error> for EngineError {
+    fn from(err: std::io::Error) -> Self {
+        EngineError::SerializationError(err.to_string())
+    }
+}

@@ -1,6 +1,7 @@
 pub mod audio;
 pub mod data;
 pub mod gradcheck;
+pub mod sampling;
 
 pub use audio::{
     compute_log_mel_spectrogram, create_mel_filterbank, generate_spoken_dataset, hz_to_mel,
@@ -16,3 +17,4 @@ pub use data::{
     standardize, train_test_split, DataLoader, QASample, TensorDataset, CIFAR10_CLASSES,
 };
 pub use gradcheck::gradcheck;
+pub use sampling::sample_token;

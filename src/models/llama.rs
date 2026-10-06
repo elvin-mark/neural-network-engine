@@ -534,6 +534,93 @@ impl Llama2LM {
         Ok(tokens)
     }
 
+    /// Autoregressive text generation with streaming callback and advanced sampling
+    /// (temperature, top-k, top-p nucleus sampling).
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_stream<R: rand::Rng, F: FnMut(usize, &str) -> Result<bool>>(
+        &self,
+        tokenizer: &crate::tokenizer::HfTokenizer,
+        prompt_tokens: &[usize],
+        max_new_tokens: usize,
+        temperature: f32,
+        top_k: Option<usize>,
+        top_p: Option<f32>,
+        eos_token_id: Option<usize>,
+        rng: &mut R,
+        mut on_token: F,
+    ) -> Result<Vec<usize>> {
+        if prompt_tokens.is_empty() {
+            return Err(EngineError::InvalidArgument(
+                "prompt_tokens cannot be empty".to_string(),
+            ));
+        }
+        let mut tokens = prompt_tokens.to_vec();
+        if max_new_tokens == 0 {
+            return Ok(tokens);
+        }
+
+        let mut kv_cache = KVCache::new(self.layers.len());
+        for slot in &mut kv_cache.layers {
+            *slot = Some((Tensor::zeros(&[0], false), Tensor::zeros(&[0], false)));
+        }
+
+        // 1. Prefill prompt
+        let logits = self.forward_tokens_cached(
+            prompt_tokens,
+            1,
+            prompt_tokens.len(),
+            0,
+            Some(&mut kv_cache),
+        )?;
+        let last_logits = logits
+            .slice(1, prompt_tokens.len() - 1, prompt_tokens.len())?
+            .squeeze(1)?
+            .squeeze(0)?;
+        let contig = last_logits.data().to_contiguous();
+        let mut next_token =
+            crate::utils::sample_token(contig.as_slice(), temperature, top_k, top_p, rng);
+        tokens.push(next_token);
+
+        let piece = tokenizer.decode_token(next_token);
+        let should_continue = on_token(next_token, &piece)?;
+        if !should_continue {
+            return Ok(tokens);
+        }
+        if let Some(eos) = eos_token_id {
+            if next_token == eos {
+                return Ok(tokens);
+            }
+        }
+
+        // 2. Decode new tokens (1 token per step with cached attention keys & values)
+        for _ in 1..max_new_tokens {
+            if tokens.len() >= self.config.max_seq_len {
+                break;
+            }
+            let start_pos = tokens.len() - 1;
+            let logits =
+                self.forward_tokens_cached(&[next_token], 1, 1, start_pos, Some(&mut kv_cache))?;
+            let step_logits = logits.squeeze(1)?.squeeze(0)?;
+            let contig = step_logits.data().to_contiguous();
+            next_token =
+                crate::utils::sample_token(contig.as_slice(), temperature, top_k, top_p, rng);
+            tokens.push(next_token);
+
+            let piece = tokenizer.decode_token(next_token);
+            let should_continue = on_token(next_token, &piece)?;
+            if !should_continue {
+                break;
+            }
+            if let Some(eos) = eos_token_id {
+                if next_token == eos {
+                    break;
+                }
+            }
+        }
+
+        Ok(tokens)
+    }
+
     pub fn parameters(&self) -> Vec<Tensor> {
         let mut params = Vec::new();
         params.extend(self.tok_embeddings.parameters());

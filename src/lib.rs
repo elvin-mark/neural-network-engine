@@ -38,7 +38,7 @@ pub use error::{EngineError, Result};
 #[cfg(feature = "gpu")]
 pub use gpu::{GpuContext, GpuLayerNorm, GpuLinear, GpuRMSNorm, GpuTensor, ToGpu};
 pub use tensor::{PoolStats, RawTensor, TensorPool};
-pub use tokenizer::ByteLevelBPE;
+pub use tokenizer::{ByteLevelBPE, HfTokenizer, TokenizerKind};
 pub use vision::{
     ColorJitter, Compose, Normalize, RandomCrop, RandomHorizontalFlip, RandomRotation90,
     RandomVerticalFlip, Transform,
@@ -76,7 +76,7 @@ pub mod prelude {
     };
     pub use crate::tensor::conv::Conv2dParams;
     pub use crate::tensor::{PoolStats, RawTensor, TensorPool};
-    pub use crate::tokenizer::ByteLevelBPE;
+    pub use crate::tokenizer::{ByteLevelBPE, HfTokenizer, TokenizerKind};
     pub use crate::utils::{
         compute_log_mel_spectrogram, create_mel_filterbank, generate_cifar100_dataset,
         generate_cifar10_dataset, generate_digits_dataset, generate_mnist_dataset,
@@ -85,8 +85,8 @@ pub mod prelude {
         hz_to_mel, load_cifar100_dataset, load_cifar100_from_binary, load_cifar10_dataset,
         load_cifar10_from_binary, load_digits_dataset, load_digits_from_csv, load_iris_dataset,
         load_iris_from_csv, load_mnist_dataset, load_mnist_from_idx, load_spoken_dataset,
-        load_tinystories_dataset, mel_to_hz, standardize, synthesize_spoken_word, train_test_split,
-        DataLoader, QASample, TensorDataset, CIFAR10_CLASSES, SPOKEN_CLASSES,
+        load_tinystories_dataset, mel_to_hz, sample_token, standardize, synthesize_spoken_word,
+        train_test_split, DataLoader, QASample, TensorDataset, CIFAR10_CLASSES, SPOKEN_CLASSES,
     };
     pub use crate::vision::{
         ColorJitter, Compose, Normalize, RandomCrop, RandomHorizontalFlip, RandomRotation90,

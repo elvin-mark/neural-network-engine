@@ -119,13 +119,6 @@ path = "examples/18_tensor_pool_and_flash_attention.rs"
 name = "19_moe_and_mixed_precision"
 path = "examples/19_moe_and_mixed_precision.rs"
 
-
-
-
-
-
-
-
-
-
-
+[[bin]]
+name = "generate"
+path = "src/bin/generate.rs"

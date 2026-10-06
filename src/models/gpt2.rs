@@ -339,6 +339,90 @@ impl GPT2Model {
         Ok(tokens)
     }
 
+    /// Autoregressive text generation with streaming callback and advanced sampling
+    /// (temperature, top-k, top-p nucleus sampling).
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_stream<R: rand::Rng, F: FnMut(usize, &str) -> Result<bool>>(
+        &self,
+        tokenizer: &crate::tokenizer::HfTokenizer,
+        prompt_tokens: &[usize],
+        max_new_tokens: usize,
+        temperature: f32,
+        top_k: Option<usize>,
+        top_p: Option<f32>,
+        eos_token_id: Option<usize>,
+        rng: &mut R,
+        mut on_token: F,
+    ) -> Result<Vec<usize>> {
+        if prompt_tokens.is_empty() {
+            return Err(EngineError::InvalidArgument(
+                "prompt_tokens cannot be empty".to_string(),
+            ));
+        }
+        let mut tokens = prompt_tokens.to_vec();
+        if max_new_tokens == 0 {
+            return Ok(tokens);
+        }
+
+        let mut cache = KVCache::new(self.config.num_layers);
+        for slot in &mut cache.layers {
+            *slot = Some((Tensor::zeros(&[0], false), Tensor::zeros(&[0], false)));
+        }
+
+        // Prefill pass: process full prompt and fill KV cache
+        let prompt_tensor = Tensor::from_slice(
+            &prompt_tokens.iter().map(|&x| x as f32).collect::<Vec<_>>(),
+            &[1, prompt_tokens.len()],
+            false,
+        );
+        let logits = self.forward_tokens(&prompt_tensor, 0, Some(&mut cache))?;
+
+        let last_step_logits = logits.slice(1, prompt_tokens.len() - 1, prompt_tokens.len())?;
+        let last_slice = last_step_logits.data().to_contiguous();
+        let mut next_token =
+            crate::utils::sample_token(last_slice.as_slice(), temperature, top_k, top_p, rng);
+        tokens.push(next_token);
+
+        let piece = tokenizer.decode_token(next_token);
+        let should_continue = on_token(next_token, &piece)?;
+        if !should_continue {
+            return Ok(tokens);
+        }
+        if let Some(eos) = eos_token_id {
+            if next_token == eos {
+                return Ok(tokens);
+            }
+        }
+
+        // Incremental generation: process 1 token at a time with O(1) step cost
+        for _ in 1..max_new_tokens {
+            let curr_pos = tokens.len() - 1;
+            if curr_pos >= self.config.max_position_embeddings {
+                break;
+            }
+            let single_token_tensor = Tensor::scalar(next_token as f32, false).reshape(&[1, 1])?;
+            let logits = self.forward_tokens(&single_token_tensor, curr_pos, Some(&mut cache))?;
+
+            let single_slice = logits.data().to_contiguous();
+            next_token =
+                crate::utils::sample_token(single_slice.as_slice(), temperature, top_k, top_p, rng);
+            tokens.push(next_token);
+
+            let piece = tokenizer.decode_token(next_token);
+            let should_continue = on_token(next_token, &piece)?;
+            if !should_continue {
+                break;
+            }
+            if let Some(eos) = eos_token_id {
+                if next_token == eos {
+                    break;
+                }
+            }
+        }
+
+        Ok(tokens)
+    }
+
     /// Loads model weights from an in-memory dictionary of tensors.
     pub fn load_weights(
         &mut self,
