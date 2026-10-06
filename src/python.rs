@@ -2,6 +2,9 @@
 
 use crate::autograd::Tensor as RustTensor;
 use crate::models::llama::SwiGLU as RustSwiGLU;
+use crate::models::modern_bert::{
+    ModernBertConfig as RustModernBertConfig, ModernBertModel as RustModernBertModel,
+};
 use crate::models::resnet::{ResNet as RustResNet, ResidualBlock as RustResidualBlock};
 use crate::nn::activations::{
     LeakyReLU as RustLeakyReLU, ReLU as RustReLU, SiLU as RustSiLU, Sigmoid as RustSigmoid,
@@ -927,6 +930,59 @@ impl PyResNet18 {
     }
 }
 
+#[pyclass(name = "ModernBertModel")]
+pub struct PyModernBertModel {
+    pub(crate) inner: RustModernBertModel,
+}
+
+#[pymethods]
+impl PyModernBertModel {
+    #[new]
+    #[pyo3(signature = (vocab_size=256, d_model=64, num_layers=2, num_heads=4, intermediate_size=160, max_position_embeddings=512, rope_theta=10000.0))]
+    fn new(
+        vocab_size: usize,
+        d_model: usize,
+        num_layers: usize,
+        num_heads: usize,
+        intermediate_size: usize,
+        max_position_embeddings: usize,
+        rope_theta: f32,
+    ) -> Self {
+        let config = RustModernBertConfig {
+            vocab_size,
+            d_model,
+            num_layers,
+            num_heads,
+            intermediate_size,
+            max_position_embeddings,
+            rope_theta,
+            norm_eps: 1e-6,
+        };
+        PyModernBertModel {
+            inner: RustModernBertModel::new(config),
+        }
+    }
+
+    fn forward(&self, token_indices: &PyTensor) -> PyResult<(PyTensor, PyTensor)> {
+        self.inner
+            .forward_model(&token_indices.inner)
+            .map(|(seq, pooled)| (PyTensor { inner: seq }, PyTensor { inner: pooled }))
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, token_indices: &PyTensor) -> PyResult<(PyTensor, PyTensor)> {
+        self.forward(token_indices)
+    }
+
+    fn parameters(&self) -> Vec<PyTensor> {
+        self.inner
+            .parameters()
+            .into_iter()
+            .map(|p| PyTensor { inner: p })
+            .collect()
+    }
+}
+
 // =============================================================================
 // Activations & Loss Functions
 // =============================================================================
@@ -1338,6 +1394,7 @@ fn neural_network_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTransformerLM>()?;
     m.add_class::<PyResidualBlock>()?;
     m.add_class::<PyResNet18>()?;
+    m.add_class::<PyModernBertModel>()?;
 
     // Activations
     m.add_class::<PyReLU>()?;

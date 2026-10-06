@@ -177,6 +177,22 @@ def test_no_grad_context():
     print("✓ test_no_grad_context passed")
 
 
+def test_modern_bert_model():
+    model = nne.ModernBertModel(vocab_size=100, d_model=32, num_layers=2, num_heads=4, intermediate_size=64)
+    tokens = nne.Tensor.from_numpy(np.array([[1, 5, 10, 15], [2, 6, 12, 18]], dtype=np.float32), requires_grad=False)
+
+    seq_out, pooled_out = model(tokens)
+    assert seq_out.shape == [2, 4, 32]
+    assert pooled_out.shape == [2, 32]
+
+    loss = (seq_out.sum() + pooled_out.sum())
+    loss.backward()
+    params = model.parameters()
+    assert len(params) > 0
+    assert params[0].grad is not None
+    print("✓ test_modern_bert_model passed")
+
+
 if __name__ == "__main__":
     print("========================================")
     print(" Running Python Bindings Test Suite")
@@ -192,6 +208,7 @@ if __name__ == "__main__":
     test_resnet18_and_residual_block()
     test_losses_and_optimizers()
     test_no_grad_context()
+    test_modern_bert_model()
     print("========================================")
-    print(" All 11 Python Test Suites Passed (100% OK)!")
+    print(" All 12 Python Test Suites Passed (100% OK)!")
     print("========================================")

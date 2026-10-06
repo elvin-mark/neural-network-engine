@@ -51,6 +51,11 @@ pub mod prelude {
     #[cfg(feature = "gpu")]
     pub use crate::gpu::{GpuContext, GpuLayerNorm, GpuLinear, GpuRMSNorm, GpuTensor, ToGpu};
     pub use crate::io::{load_safetensors, save_safetensors, Checkpoint};
+    pub use crate::models::{
+        ModernBertAttention, ModernBertConfig, ModernBertEncoder,
+        ModernBertForSequenceClassification, ModernBertForSequenceEmbedding, ModernBertLayer,
+        ModernBertMLP, ModernBertModel,
+    };
     pub use crate::nn::{
         calculate_fan_in_and_fan_out, calculate_gain, constant, constant_, flash_attention_forward,
         kaiming_normal, kaiming_normal_, kaiming_uniform, kaiming_uniform_, normal, normal_, ones_,

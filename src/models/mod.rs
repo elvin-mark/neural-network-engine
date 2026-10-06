@@ -5,6 +5,7 @@
 
 pub mod bert;
 pub mod llama;
+pub mod modern_bert;
 pub mod resnet;
 pub mod vit;
 pub mod whisper;
@@ -15,6 +16,10 @@ pub use bert::{
 };
 pub use llama::{
     GroupedQueryAttention, Llama2Block, Llama2LM, LlamaConfig, RotaryEmbedding, SwiGLU,
+};
+pub use modern_bert::{
+    ModernBertAttention, ModernBertConfig, ModernBertEncoder, ModernBertForSequenceClassification,
+    ModernBertForSequenceEmbedding, ModernBertLayer, ModernBertMLP, ModernBertModel,
 };
 pub use resnet::{BottleneckBlock, ResBlock, ResNet, ResidualBlock};
 pub use vit::{ViTConfig, VisionTransformer};
