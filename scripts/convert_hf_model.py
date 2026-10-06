@@ -17,7 +17,9 @@ import os
 from pathlib import Path
 import torch
 from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer, WhisperForConditionalGeneration
-from safetensors.torch import save_file
+from safetensors.torch import save_file, load_file
+from huggingface_hub import hf_hub_download
+
 
 
 def convert_gpt2(model_id: str, output_dir: Path):
@@ -136,6 +138,23 @@ def convert_tinyllamas(model_id: str, output_dir: Path):
     model.eval()
 
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Some Hugging Face models with tied embeddings (e.g. Xenova/llama2.c-stories15M) leave embed_tokens and lm_head
+    # as unmaterialized meta tensors when loaded with newer transformers. Load raw safetensors if meta tensors are detected.
+    if any(p.is_meta for p in model.parameters()):
+        try:
+            raw_weights_file = hf_hub_download(model_id, "model.safetensors")
+            raw_weights = load_file(raw_weights_file)
+            if "lm_head.weight" in raw_weights:
+                tied_weight = raw_weights["lm_head.weight"]
+                model.lm_head.weight = torch.nn.Parameter(tied_weight.clone())
+                model.model.embed_tokens.weight = torch.nn.Parameter(tied_weight.clone())
+            elif "model.embed_tokens.weight" in raw_weights:
+                tied_weight = raw_weights["model.embed_tokens.weight"]
+                model.lm_head.weight = torch.nn.Parameter(tied_weight.clone())
+                model.model.embed_tokens.weight = torch.nn.Parameter(tied_weight.clone())
+        except Exception as e:
+            print(f"[!] Warning: Failed to populate meta tensors from remote safetensors: {e}")
 
     print("[*] Transforming state_dict for neural-network-engine Llama2LM...")
     transformed_weights = {}
