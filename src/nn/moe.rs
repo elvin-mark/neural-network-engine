@@ -10,8 +10,8 @@
 
 use crate::autograd::Tensor;
 use crate::error::Result;
+use crate::models::llama::SwiGLU;
 use crate::nn::linear::Linear;
-use crate::nn::llama::SwiGLU;
 use crate::nn::module::Module;
 use crate::tensor::RawTensor;
 

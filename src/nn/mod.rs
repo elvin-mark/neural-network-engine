@@ -1,8 +1,9 @@
-//! Composable neural network layers, activation functions, losses, initializations, recurrent networks, quantized layers, residual networks, flash attention, and transformer modules.
+//! Composable neural network layers, activation functions, losses, initializations, recurrent networks, quantized layers, flash attention, and transformer modules.
+//!
+//! For full end-to-end model architectures (BERT, LLaMA, ResNet, ViT, Whisper), see [`crate::models`].
 
 pub mod activations;
 pub mod attention;
-pub mod bert;
 pub mod conv;
 pub mod dropout;
 pub mod embedding;
@@ -10,19 +11,22 @@ pub mod flash_attention;
 pub mod init;
 pub mod kv_cache;
 pub mod linear;
-pub mod llama;
 pub mod loss;
 pub mod module;
 pub mod moe;
 pub mod norm;
 pub mod pooling;
 pub mod quantized;
-pub mod resnet;
 pub mod rnn;
 pub mod sequential;
 pub mod transformer;
-pub mod vit;
-pub mod whisper;
+
+// Re-export full model modules for backward compatibility
+pub use crate::models::bert;
+pub use crate::models::llama;
+pub use crate::models::resnet;
+pub use crate::models::vit;
+pub use crate::models::whisper;
 
 pub use activations::{LeakyReLU, ReLU, SiLU, Sigmoid, Softmax, Tanh, GELU};
 pub use attention::MultiHeadAttention;

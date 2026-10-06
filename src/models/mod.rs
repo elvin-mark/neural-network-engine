@@ -1,0 +1,21 @@
+//! Production-ready reference neural network model architectures.
+//!
+//! Includes Transformer LLMs, Computer Vision architectures, Speech Recognition models,
+//! and Bidirectional Encoders.
+
+pub mod bert;
+pub mod llama;
+pub mod resnet;
+pub mod vit;
+pub mod whisper;
+
+pub use bert::{
+    BertConfig, BertEmbeddings, BertEncoder, BertForQuestionAnswering, BertForSequenceEmbedding,
+    BertLayer, BertModel, BertPooler,
+};
+pub use llama::{
+    GroupedQueryAttention, Llama2Block, Llama2LM, LlamaConfig, RotaryEmbedding, SwiGLU,
+};
+pub use resnet::{BottleneckBlock, ResBlock, ResNet, ResidualBlock};
+pub use vit::{ViTConfig, VisionTransformer};
+pub use whisper::{Whisper, WhisperConfig, WhisperDecoder, WhisperEncoder};

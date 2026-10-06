@@ -23,6 +23,7 @@ pub mod error;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 pub mod io;
+pub mod models;
 pub mod nn;
 pub mod optim;
 #[cfg(feature = "python")]

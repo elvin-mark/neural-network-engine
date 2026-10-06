@@ -1,6 +1,8 @@
 #![allow(clippy::useless_conversion)]
 
 use crate::autograd::Tensor as RustTensor;
+use crate::models::llama::SwiGLU as RustSwiGLU;
+use crate::models::resnet::{ResNet as RustResNet, ResidualBlock as RustResidualBlock};
 use crate::nn::activations::{
     LeakyReLU as RustLeakyReLU, ReLU as RustReLU, SiLU as RustSiLU, Sigmoid as RustSigmoid,
     Tanh as RustTanh, GELU as RustGELU,
@@ -11,7 +13,6 @@ use crate::nn::dropout::Dropout as RustDropout;
 use crate::nn::embedding::Embedding as RustEmbedding;
 use crate::nn::flash_attention::FlashAttention as RustFlashAttention;
 use crate::nn::linear::Linear as RustLinear;
-use crate::nn::llama::SwiGLU as RustSwiGLU;
 use crate::nn::loss::{CrossEntropyLoss as RustCrossEntropyLoss, MSELoss as RustMSELoss};
 use crate::nn::module::Module;
 use crate::nn::moe::{MoEConfig as RustMoEConfig, MoELayer as RustMoELayer};
@@ -20,7 +21,6 @@ use crate::nn::norm::{
     RMSNorm as RustRMSNorm,
 };
 use crate::nn::pooling::MaxPool2d as RustMaxPool2d;
-use crate::nn::resnet::{ResNet as RustResNet, ResidualBlock as RustResidualBlock};
 use crate::nn::transformer::{
     TransformerBlock as RustTransformerBlock, TransformerLM as RustTransformerLM,
 };
