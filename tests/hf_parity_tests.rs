@@ -183,3 +183,110 @@ fn test_hf_minilm_safetensors_and_embeddings_parity() {
         );
     }
 }
+
+#[derive(serde::Deserialize)]
+struct QAReferenceData {
+    input_ids: Vec<usize>,
+    token_type_ids: Vec<usize>,
+    best_start: usize,
+    best_end: usize,
+    first_5_start_logits: Vec<f32>,
+    first_5_end_logits: Vec<f32>,
+}
+
+#[test]
+fn test_hf_tinybert_safetensors_and_qa_parity() {
+    let checkpoint_dir = Path::new("checkpoints/tinybert");
+    let model_path = checkpoint_dir.join("model.safetensors");
+    let ref_path = checkpoint_dir.join("reference.json");
+
+    if !model_path.exists() || !ref_path.exists() {
+        eprintln!(
+            "Skipping test_hf_tinybert_safetensors_and_qa_parity: checkpoint files not found at {:?}",
+            checkpoint_dir
+        );
+        return;
+    }
+
+    // 1. Load reference test vectors
+    let ref_file = File::open(&ref_path).expect("Failed to open reference.json");
+    let ref_data: QAReferenceData =
+        serde_json::from_reader(BufReader::new(ref_file)).expect("Failed to parse reference.json");
+
+    // 2. Instantiate Dynamic TinyBERT QA model
+    let config = BertConfig::dynamic_tinybert();
+    let mut model = BertForQuestionAnswering::new(config);
+
+    // 3. Load converted SafeTensors weights
+    model
+        .load_safetensors(&model_path)
+        .expect("Failed to load SafeTensors weights into BertForQuestionAnswering");
+
+    // 4. Run QA forward pass
+    let seq_len = ref_data.input_ids.len();
+    let input_ids = Tensor::from_slice(
+        &ref_data.input_ids.iter().map(|&x| x as f32).collect::<Vec<_>>(),
+        &[1, seq_len],
+        false,
+    );
+    let token_type_ids = Tensor::from_slice(
+        &ref_data.token_type_ids.iter().map(|&x| x as f32).collect::<Vec<_>>(),
+        &[1, seq_len],
+        false,
+    );
+
+    let (start_logits, end_logits) = model
+        .forward_qa(&input_ids, Some(&token_type_ids))
+        .expect("BertForQuestionAnswering forward failed");
+
+    let start_slice = start_logits.data().to_contiguous();
+    let end_slice = end_logits.data().to_contiguous();
+
+    let actual_start_slice = start_slice.as_slice();
+    let actual_end_slice = end_slice.as_slice();
+
+    let actual_best_start = actual_start_slice
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+        .map(|(idx, _)| idx)
+        .unwrap_or(0);
+
+    let actual_best_end = actual_end_slice
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+        .map(|(idx, _)| idx)
+        .unwrap_or(0);
+
+    println!("Expected best start/end: ({}, {})", ref_data.best_start, ref_data.best_end);
+    println!("Actual best start/end:   ({}, {})", actual_best_start, actual_best_end);
+
+    // 5. Assert exact span prediction parity
+    assert_eq!(
+        actual_best_start, ref_data.best_start,
+        "Best start token index mismatch!"
+    );
+    assert_eq!(
+        actual_best_end, ref_data.best_end,
+        "Best end token index mismatch!"
+    );
+
+    for (a, b) in actual_start_slice[..5].iter().zip(ref_data.first_5_start_logits.iter()) {
+        assert!(
+            (a - b).abs() < 5e-2,
+            "Start logit mismatch: {} vs {}",
+            a,
+            b
+        );
+    }
+
+    for (a, b) in actual_end_slice[..5].iter().zip(ref_data.first_5_end_logits.iter()) {
+        assert!(
+            (a - b).abs() < 5e-2,
+            "End logit mismatch: {} vs {}",
+            a,
+            b
+        );
+    }
+}

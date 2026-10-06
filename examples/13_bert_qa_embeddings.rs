@@ -139,6 +139,7 @@ fn main() -> Result<()> {
         max_position_embeddings: 128,
         type_vocab_size: 2,
         layer_norm_eps: 1e-6,
+        hidden_act: "gelu".to_string(),
     };
 
     println!("BERT Architecture Configuration:");

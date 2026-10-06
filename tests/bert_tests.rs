@@ -11,6 +11,7 @@ fn test_bert_tri_embeddings_and_segment_encoding() {
         max_position_embeddings: 64,
         type_vocab_size: 2,
         layer_norm_eps: 1e-6,
+        hidden_act: "gelu".to_string(),
     };
 
     let bert = BertModel::new(config);

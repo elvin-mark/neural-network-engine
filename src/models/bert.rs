@@ -35,6 +35,8 @@ pub struct BertConfig {
     pub type_vocab_size: usize,
     /// Epsilon value for layer normalization.
     pub layer_norm_eps: f32,
+    /// Hidden activation function (e.g. "gelu" or "relu").
+    pub hidden_act: String,
 }
 
 impl BertConfig {
@@ -49,6 +51,7 @@ impl BertConfig {
             max_position_embeddings: 128,
             type_vocab_size: 2,
             layer_norm_eps: 1e-6,
+            hidden_act: "gelu".to_string(),
         }
     }
 
@@ -63,20 +66,22 @@ impl BertConfig {
             max_position_embeddings: 512,
             type_vocab_size: 2,
             layer_norm_eps: 1e-12,
+            hidden_act: "gelu".to_string(),
         }
     }
 
-    /// TinyBERT 4-layer 312-dim configuration (`huawei-noah/TinyBERT_General_4L_312D`).
-    pub fn tinybert_4l() -> Self {
+    /// Intel Dynamic TinyBERT configuration (`Intel/dynamic_tinybert` for Question Answering / SQuAD).
+    pub fn dynamic_tinybert() -> Self {
         Self {
             vocab_size: 30522,
-            d_model: 312,
-            num_layers: 4,
+            d_model: 768,
+            num_layers: 6,
             num_heads: 12,
-            d_ff: 1200,
+            d_ff: 3072,
             max_position_embeddings: 512,
             type_vocab_size: 2,
             layer_norm_eps: 1e-12,
+            hidden_act: "relu".to_string(),
         }
     }
 }
@@ -174,16 +179,18 @@ pub struct BertLayer {
     pub intermediate: Linear,
     pub output_dense: Linear,
     pub output_norm: LayerNorm,
+    pub hidden_act: String,
 }
 
 impl BertLayer {
-    pub fn new(d_model: usize, num_heads: usize, d_ff: usize, eps: f32) -> Self {
+    pub fn new(d_model: usize, num_heads: usize, d_ff: usize, eps: f32, hidden_act: &str) -> Self {
         Self {
             attention: MultiHeadAttention::new(d_model, num_heads, false), // Bidirectional
             attention_norm: LayerNorm::with_eps(d_model, eps),
             intermediate: Linear::new(d_model, d_ff),
             output_dense: Linear::new(d_ff, d_model),
             output_norm: LayerNorm::with_eps(d_model, eps),
+            hidden_act: hidden_act.to_string(),
         }
     }
 
@@ -192,9 +199,14 @@ impl BertLayer {
         let attn_out = self.attention.forward_attention(x)?;
         let x = self.attention_norm.forward(&x.add(&attn_out)?)?;
 
-        // 2. GELU FFN with Residual & LayerNorm
-        let inter = self.intermediate.forward(&x)?.gelu()?;
-        let ffn_out = self.output_dense.forward(&inter)?;
+        // 2. FFN with Residual & LayerNorm
+        let inter = self.intermediate.forward(&x)?;
+        let activated = if self.hidden_act == "relu" {
+            inter.relu()?
+        } else {
+            inter.gelu()?
+        };
+        let ffn_out = self.output_dense.forward(&activated)?;
         self.output_norm.forward(&x.add(&ffn_out)?)
     }
 }
@@ -230,6 +242,7 @@ impl BertEncoder {
                 config.num_heads,
                 config.d_ff,
                 config.layer_norm_eps,
+                &config.hidden_act,
             ));
         }
         Self { layers }
@@ -572,6 +585,7 @@ mod tests {
             max_position_embeddings: 64,
             type_vocab_size: 2,
             layer_norm_eps: 1e-6,
+            hidden_act: "gelu".to_string(),
         };
 
         let bert = BertModel::new(config);
