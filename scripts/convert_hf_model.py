@@ -597,9 +597,81 @@ def convert_vit(model_id: str, output_dir: Path):
     print(f"[✓] Model '{model_id}' successfully converted to {output_dir}")
 
 
+def convert_modern_bert(model_id: str, output_dir: Path):
+    print(f"[*] Loading Hugging Face ModernBERT model '{model_id}'...")
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    model = AutoModel.from_pretrained(model_id)
+    model.eval()
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print("[*] Transforming state_dict for neural-network-engine ModernBertModel...")
+    transformed_weights = {}
+
+    # Token embeddings
+    transformed_weights["embeddings.weight"] = model.embeddings.tok_embeddings.weight.detach().to(torch.float32).contiguous()
+
+    # Cascade through transformer layers
+    for i, layer in enumerate(model.layers):
+        prefix = f"encoder.layers.{i}"
+
+        # Attn norm
+        transformed_weights[f"{prefix}.attn_norm.weight"] = layer.attn_norm.weight.detach().to(torch.float32).contiguous()
+
+        # Attention: Wqkv [3 * d_model, d_model] -> q, k, v
+        wqkv = layer.attn.Wqkv.weight.detach().to(torch.float32)
+        d_model = model.config.hidden_size
+        q_w, k_w, v_w = wqkv.split(d_model, dim=0)
+
+        transformed_weights[f"{prefix}.attention.q_proj.weight"] = q_w.contiguous()
+        transformed_weights[f"{prefix}.attention.k_proj.weight"] = k_w.contiguous()
+        transformed_weights[f"{prefix}.attention.v_proj.weight"] = v_w.contiguous()
+
+        transformed_weights[f"{prefix}.attention.out_proj.weight"] = layer.attn.Wo.weight.detach().to(torch.float32).contiguous()
+
+        # MLP norm
+        transformed_weights[f"{prefix}.mlp_norm.weight"] = layer.mlp_norm.weight.detach().to(torch.float32).contiguous()
+
+        # MLP: Wi [2 * intermediate_size, d_model] -> gate_proj, up_proj
+        wi = layer.mlp.Wi.weight.detach().to(torch.float32)
+        intermediate_size = model.config.intermediate_size
+        gate_w, up_w = wi.split(intermediate_size, dim=0)
+
+        transformed_weights[f"{prefix}.mlp.gate_proj.weight"] = gate_w.contiguous()
+        transformed_weights[f"{prefix}.mlp.up_proj.weight"] = up_w.contiguous()
+        transformed_weights[f"{prefix}.mlp.down_proj.weight"] = layer.mlp.Wo.weight.detach().to(torch.float32).contiguous()
+
+    # Final norm
+    transformed_weights["encoder.final_norm.weight"] = model.final_norm.weight.detach().to(torch.float32).contiguous()
+
+    weights_path = output_dir / "model.safetensors"
+    print(f"[*] Saving SafeTensors weights to {weights_path}...")
+    save_file(transformed_weights, str(weights_path))
+
+    print("[*] Saving tokenizer configuration...")
+    tokenizer.save_pretrained(str(output_dir))
+
+    text = "ModernBERT is a modernized bidirectional encoder."
+    inputs = tokenizer(text, return_tensors="pt")
+    with torch.no_grad():
+        out = model(**inputs)
+        pooled = out.last_hidden_state.mean(dim=1)[0].tolist()
+
+    reference_meta = {
+        "model_id": model_id,
+        "text": text,
+        "input_ids": inputs.input_ids[0].tolist(),
+        "first_5_pooled": pooled[:5],
+    }
+    with open(output_dir / "reference.json", "w") as f:
+        json.dump(reference_meta, f, indent=2)
+
+    print(f"[✓] Model '{model_id}' successfully converted to {output_dir}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Convert Hugging Face models to neural-network-engine format.")
-    parser.add_argument("--model", type=str, default="gpt2", choices=["gpt2", "tinyllamas", "minilm", "tinybert", "whisper", "vit"], help="Model architecture")
+    parser.add_argument("--model", type=str, default="gpt2", choices=["gpt2", "tinyllamas", "minilm", "tinybert", "whisper", "vit", "modern_bert"], help="Model architecture")
     parser.add_argument("--output-dir", type=str, default=None, help="Destination output directory")
     args = parser.parse_args()
 
@@ -619,6 +691,8 @@ def main():
         convert_whisper("openai/whisper-tiny", output_dir)
     elif args.model == "vit":
         convert_vit("timm/vit_tiny_patch16_224.augreg_in21k_ft_in1k", output_dir)
+    elif args.model == "modern_bert":
+        convert_modern_bert("answerdotai/ModernBERT-base", output_dir)
 
 
 if __name__ == "__main__":

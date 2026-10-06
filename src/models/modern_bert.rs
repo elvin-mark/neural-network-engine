@@ -52,17 +52,17 @@ impl ModernBertConfig {
         }
     }
 
-    /// ModernBERT-base reference architecture configuration.
+    /// ModernBERT-base reference architecture configuration (Answer.AI / LightOn).
     pub fn base(vocab_size: usize) -> Self {
         Self {
             vocab_size,
             d_model: 768,
             num_layers: 22,
             num_heads: 12,
-            intermediate_size: 2048,
+            intermediate_size: 1152,
             max_position_embeddings: 8192,
-            rope_theta: 10000.0,
-            norm_eps: 1e-6,
+            rope_theta: 160000.0,
+            norm_eps: 1e-5,
         }
     }
 }

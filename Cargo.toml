@@ -122,3 +122,8 @@ path = "examples/19_moe_and_mixed_precision.rs"
 [[bin]]
 name = "generate"
 path = "src/bin/generate.rs"
+
+[[bin]]
+name = "similarity"
+path = "src/bin/similarity.rs"
+
