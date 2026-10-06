@@ -510,9 +510,96 @@ def convert_whisper(model_id: str, output_dir: Path):
     print(f"[✓] Model '{model_id}' successfully converted to {output_dir}")
 
 
+def convert_vit(model_id: str, output_dir: Path):
+    print(f"[*] Loading timm ViT model '{model_id}'...")
+    import timm
+
+    timm_name = f"hf-hub:{model_id}" if "/" in model_id and not model_id.startswith(("hf-hub:", "local-dir:")) else model_id
+    model = timm.create_model(timm_name, pretrained=True)
+    model.eval()
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print("[*] Transforming state_dict for neural-network-engine VisionTransformer...")
+    transformed_weights = {}
+
+    # Patch embedding
+    transformed_weights["patch_embed.proj.weight"] = model.patch_embed.proj.weight.detach().to(torch.float32).contiguous()
+    transformed_weights["patch_embed.proj.bias"] = model.patch_embed.proj.bias.detach().to(torch.float32).contiguous()
+
+    # CLS token & Positional embeddings
+    transformed_weights["cls_token"] = model.cls_token.detach().to(torch.float32).contiguous()
+    transformed_weights["pos_embed"] = model.pos_embed.detach().to(torch.float32).contiguous()
+
+    # 12 Transformer blocks
+    for i, block in enumerate(model.blocks):
+        prefix = f"blocks.{i}"
+        # LayerNorm 1
+        transformed_weights[f"{prefix}.norm1.weight"] = block.norm1.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.norm1.bias"] = block.norm1.bias.detach().to(torch.float32).contiguous()
+
+        # MultiHeadAttention: qkv chunking
+        w_q, w_k, w_v = block.attn.qkv.weight.chunk(3, dim=0)
+        b_q, b_k, b_v = block.attn.qkv.bias.chunk(3, dim=0)
+
+        transformed_weights[f"{prefix}.attn.q_proj.weight"] = w_q.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.attn.q_proj.bias"] = b_q.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.attn.k_proj.weight"] = w_k.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.attn.k_proj.bias"] = b_k.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.attn.v_proj.weight"] = w_v.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.attn.v_proj.bias"] = b_v.detach().to(torch.float32).contiguous()
+
+        # Attention out_proj
+        transformed_weights[f"{prefix}.attn.out_proj.weight"] = block.attn.proj.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.attn.out_proj.bias"] = block.attn.proj.bias.detach().to(torch.float32).contiguous()
+
+        # LayerNorm 2
+        transformed_weights[f"{prefix}.norm2.weight"] = block.norm2.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.norm2.bias"] = block.norm2.bias.detach().to(torch.float32).contiguous()
+
+        # MLP
+        transformed_weights[f"{prefix}.mlp_fc1.weight"] = block.mlp.fc1.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.mlp_fc1.bias"] = block.mlp.fc1.bias.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.mlp_fc2.weight"] = block.mlp.fc2.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.mlp_fc2.bias"] = block.mlp.fc2.bias.detach().to(torch.float32).contiguous()
+
+    # Final LayerNorm & Head
+    transformed_weights["norm.weight"] = model.norm.weight.detach().to(torch.float32).contiguous()
+    transformed_weights["norm.bias"] = model.norm.bias.detach().to(torch.float32).contiguous()
+    transformed_weights["head.weight"] = model.head.weight.detach().to(torch.float32).contiguous()
+    transformed_weights["head.bias"] = model.head.bias.detach().to(torch.float32).contiguous()
+
+    weights_path = output_dir / "model.safetensors"
+    print(f"[*] Saving SafeTensors weights to {weights_path}...")
+    save_file(transformed_weights, str(weights_path))
+
+    # Reference inference verification
+    print("[*] Generating reference verification vector...")
+    x = torch.zeros(1, 3, 224, 224)
+    with torch.no_grad():
+        out = model(x)
+        logits = out[0].tolist()
+        predicted_class = int(out[0].argmax().item())
+
+    print(f"[*] Predicted Class: {predicted_class}")
+    print(f"[*] First 5 Logits: {logits[:5]}")
+
+    reference_meta = {
+        "model_id": model_id,
+        "input_shape": [1, 3, 224, 224],
+        "input_type": "zeros",
+        "predicted_class": predicted_class,
+        "first_5_logits": logits[:5],
+    }
+    with open(output_dir / "reference.json", "w") as f:
+        json.dump(reference_meta, f, indent=2)
+
+    print(f"[✓] Model '{model_id}' successfully converted to {output_dir}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Convert Hugging Face models to neural-network-engine format.")
-    parser.add_argument("--model", type=str, default="gpt2", choices=["gpt2", "tinyllamas", "minilm", "tinybert", "whisper"], help="Model architecture")
+    parser.add_argument("--model", type=str, default="gpt2", choices=["gpt2", "tinyllamas", "minilm", "tinybert", "whisper", "vit"], help="Model architecture")
     parser.add_argument("--output-dir", type=str, default=None, help="Destination output directory")
     args = parser.parse_args()
 
@@ -530,6 +617,8 @@ def main():
         convert_tinybert_qa("Intel/dynamic_tinybert", output_dir)
     elif args.model == "whisper":
         convert_whisper("openai/whisper-tiny", output_dir)
+    elif args.model == "vit":
+        convert_vit("timm/vit_tiny_patch16_224.augreg_in21k_ft_in1k", output_dir)
 
 
 if __name__ == "__main__":

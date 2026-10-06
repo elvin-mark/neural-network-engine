@@ -93,6 +93,8 @@ fn test_vision_transformer_forward_backward() {
         num_layers: 2,
         num_heads: 2,
         mlp_dim: 32,
+        use_cls_token: false,
+        eps: 1e-5,
     };
     let vit = VisionTransformer::new(config);
 

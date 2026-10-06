@@ -417,3 +417,73 @@ fn test_hf_whisper_tiny_safetensors_and_logits_parity() {
         assert!((a - b).abs() < 5e-2, "Logit mismatch: {} vs {}", a, b);
     }
 }
+
+#[derive(serde::Deserialize)]
+struct ViTReferenceData {
+    input_shape: Vec<usize>,
+    predicted_class: usize,
+    first_5_logits: Vec<f32>,
+}
+
+#[test]
+#[ignore = "requires pre-downloaded HF checkpoints (local verification only)"]
+fn test_hf_vit_tiny_safetensors_and_classification_parity() {
+    let checkpoint_dir = Path::new("checkpoints/vit");
+    let model_path = checkpoint_dir.join("model.safetensors");
+    let ref_path = checkpoint_dir.join("reference.json");
+
+    if !model_path.exists() || !ref_path.exists() {
+        eprintln!(
+            "Skipping test_hf_vit_tiny_safetensors_and_classification_parity: checkpoint files not found at {:?}",
+            checkpoint_dir
+        );
+        return;
+    }
+
+    // 1. Load reference test vectors
+    let ref_file = File::open(&ref_path).expect("Failed to open reference.json");
+    let ref_data: ViTReferenceData =
+        serde_json::from_reader(BufReader::new(ref_file)).expect("Failed to parse reference.json");
+
+    // 2. Instantiate ViT Tiny model (192 embedding dim, 12 layers, 3 heads)
+    let config = ViTConfig::vit_tiny_patch16_224();
+    let mut model = VisionTransformer::new(config);
+
+    // 3. Load converted SafeTensors weights
+    model
+        .load_safetensors(&model_path)
+        .expect("Failed to load SafeTensors weights into VisionTransformer");
+
+    // 4. Construct input tensor [1, 3, 224, 224] (zeros)
+    let shape = &ref_data.input_shape;
+    let x = Tensor::zeros(&[shape[0], shape[1], shape[2], shape[3]], false);
+
+    // 5. Forward classification
+    let logits = model.forward(&x).expect("VisionTransformer forward failed");
+    assert_eq!(logits.shape(), &[1, 1000]);
+
+    let slice = logits.data().to_contiguous();
+    let actual_slice = slice.as_slice();
+
+    let actual_predicted_class = actual_slice
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+        .map(|(idx, _)| idx)
+        .unwrap_or(0);
+
+    println!("Expected predicted class: {}", ref_data.predicted_class);
+    println!("Actual predicted class:   {}", actual_predicted_class);
+    println!("Expected first 5 logits:  {:?}", ref_data.first_5_logits);
+    println!("Actual first 5 logits:    {:?}", &actual_slice[..5]);
+
+    // 6. Assert exact classification parity
+    assert_eq!(
+        actual_predicted_class, ref_data.predicted_class,
+        "Predicted class mismatch!"
+    );
+
+    for (a, b) in actual_slice[..5].iter().zip(ref_data.first_5_logits.iter()) {
+        assert!((a - b).abs() < 5e-2, "Logit mismatch: {} vs {}", a, b);
+    }
+}

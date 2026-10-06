@@ -21,14 +21,27 @@ pub struct TransformerBlock {
 
 impl TransformerBlock {
     pub fn new(d_model: usize, num_heads: usize, is_causal: bool) -> Self {
-        let mlp_hidden = d_model * 4;
+        Self::with_options(d_model, num_heads, d_model * 4, is_causal, 1e-5)
+    }
+
+    pub fn with_mlp_dim(d_model: usize, num_heads: usize, mlp_dim: usize, is_causal: bool) -> Self {
+        Self::with_options(d_model, num_heads, mlp_dim, is_causal, 1e-5)
+    }
+
+    pub fn with_options(
+        d_model: usize,
+        num_heads: usize,
+        mlp_dim: usize,
+        is_causal: bool,
+        eps: f32,
+    ) -> Self {
         Self {
-            ln1: LayerNorm::new(d_model),
+            ln1: LayerNorm::with_eps(d_model, eps),
             attn: MultiHeadAttention::new(d_model, num_heads, is_causal),
-            ln2: LayerNorm::new(d_model),
-            mlp_fc1: Linear::new(d_model, mlp_hidden),
+            ln2: LayerNorm::with_eps(d_model, eps),
+            mlp_fc1: Linear::new(d_model, mlp_dim),
             mlp_gelu: GELU,
-            mlp_fc2: Linear::new(mlp_hidden, d_model),
+            mlp_fc2: Linear::new(mlp_dim, d_model),
         }
     }
 }
