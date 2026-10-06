@@ -4,6 +4,7 @@
 //! and Bidirectional Encoders.
 
 pub mod bert;
+pub mod gpt2;
 pub mod llama;
 pub mod modern_bert;
 pub mod resnet;
@@ -14,6 +15,7 @@ pub use bert::{
     BertConfig, BertEmbeddings, BertEncoder, BertForQuestionAnswering, BertForSequenceEmbedding,
     BertLayer, BertModel, BertPooler,
 };
+pub use gpt2::{GPT2Block, GPT2Config, GPT2Model};
 pub use llama::{
     GroupedQueryAttention, Llama2Block, Llama2LM, LlamaConfig, RotaryEmbedding, SwiGLU,
 };

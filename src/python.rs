@@ -1,6 +1,7 @@
 #![allow(clippy::useless_conversion)]
 
 use crate::autograd::Tensor as RustTensor;
+use crate::models::gpt2::{GPT2Config as RustGPT2Config, GPT2Model as RustGPT2Model};
 use crate::models::llama::SwiGLU as RustSwiGLU;
 use crate::models::modern_bert::{
     ModernBertConfig as RustModernBertConfig, ModernBertModel as RustModernBertModel,
@@ -983,6 +984,69 @@ impl PyModernBertModel {
     }
 }
 
+#[pyclass(name = "GPT2Model")]
+pub struct PyGPT2Model {
+    pub(crate) inner: RustGPT2Model,
+}
+
+#[pymethods]
+impl PyGPT2Model {
+    #[new]
+    #[pyo3(signature = (vocab_size=256, max_position_embeddings=128, d_model=64, num_heads=4, num_layers=2))]
+    fn new(
+        vocab_size: usize,
+        max_position_embeddings: usize,
+        d_model: usize,
+        num_heads: usize,
+        num_layers: usize,
+    ) -> Self {
+        let config = RustGPT2Config {
+            vocab_size,
+            max_position_embeddings,
+            d_model,
+            num_heads,
+            num_layers,
+            d_ff: d_model * 4,
+            layer_norm_eps: 1e-5,
+        };
+        PyGPT2Model {
+            inner: RustGPT2Model::new(config),
+        }
+    }
+
+    #[pyo3(signature = (token_indices, start_pos=0))]
+    fn forward(&self, token_indices: &PyTensor, start_pos: usize) -> PyResult<PyTensor> {
+        self.inner
+            .forward_tokens(&token_indices.inner, start_pos, None)
+            .map(|logits| PyTensor { inner: logits })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __call__(&self, token_indices: &PyTensor) -> PyResult<PyTensor> {
+        self.forward(token_indices, 0)
+    }
+
+    #[pyo3(signature = (prompt_tokens, max_new_tokens=20, eos_token_id=None))]
+    fn generate(
+        &self,
+        prompt_tokens: Vec<usize>,
+        max_new_tokens: usize,
+        eos_token_id: Option<usize>,
+    ) -> PyResult<Vec<usize>> {
+        self.inner
+            .generate(&prompt_tokens, max_new_tokens, eos_token_id)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn parameters(&self) -> Vec<PyTensor> {
+        self.inner
+            .parameters()
+            .into_iter()
+            .map(|p| PyTensor { inner: p })
+            .collect()
+    }
+}
+
 // =============================================================================
 // Activations & Loss Functions
 // =============================================================================
@@ -1395,6 +1459,7 @@ fn neural_network_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyResidualBlock>()?;
     m.add_class::<PyResNet18>()?;
     m.add_class::<PyModernBertModel>()?;
+    m.add_class::<PyGPT2Model>()?;
 
     // Activations
     m.add_class::<PyReLU>()?;

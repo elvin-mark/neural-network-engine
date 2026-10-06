@@ -52,7 +52,7 @@ pub mod prelude {
     pub use crate::gpu::{GpuContext, GpuLayerNorm, GpuLinear, GpuRMSNorm, GpuTensor, ToGpu};
     pub use crate::io::{load_safetensors, save_safetensors, Checkpoint};
     pub use crate::models::{
-        ModernBertAttention, ModernBertConfig, ModernBertEncoder,
+        GPT2Block, GPT2Config, GPT2Model, ModernBertAttention, ModernBertConfig, ModernBertEncoder,
         ModernBertForSequenceClassification, ModernBertForSequenceEmbedding, ModernBertLayer,
         ModernBertMLP, ModernBertModel,
     };
