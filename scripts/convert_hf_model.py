@@ -16,7 +16,7 @@ import json
 import os
 from pathlib import Path
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer
 from safetensors.torch import save_file
 
 
@@ -199,9 +199,95 @@ def convert_tinyllamas(model_id: str, output_dir: Path):
     print(f"[✓] Model '{model_id}' successfully converted to {output_dir}")
 
 
+def convert_bert(model_id: str, output_dir: Path):
+    print(f"[*] Loading Hugging Face BERT model '{model_id}'...")
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    model = AutoModel.from_pretrained(model_id)
+    model.eval()
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print("[*] Transforming state_dict for neural-network-engine BertModel...")
+    transformed_weights = {}
+
+    # Embeddings
+    transformed_weights["embeddings.word_embeddings.weight"] = model.embeddings.word_embeddings.weight.detach().to(torch.float32).contiguous()
+    transformed_weights["embeddings.position_embeddings.weight"] = model.embeddings.position_embeddings.weight.detach().to(torch.float32).contiguous()
+    transformed_weights["embeddings.token_type_embeddings.weight"] = model.embeddings.token_type_embeddings.weight.detach().to(torch.float32).contiguous()
+    transformed_weights["embeddings.layer_norm.weight"] = model.embeddings.LayerNorm.weight.detach().to(torch.float32).contiguous()
+    transformed_weights["embeddings.layer_norm.bias"] = model.embeddings.LayerNorm.bias.detach().to(torch.float32).contiguous()
+
+    # Encoder layers
+    for i, layer in enumerate(model.encoder.layer):
+        prefix = f"encoder.layers.{i}"
+
+        # Self-attention projections (q, k, v, out)
+        transformed_weights[f"{prefix}.attention.q_proj.weight"] = layer.attention.self.query.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.attention.q_proj.bias"] = layer.attention.self.query.bias.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.attention.k_proj.weight"] = layer.attention.self.key.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.attention.k_proj.bias"] = layer.attention.self.key.bias.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.attention.v_proj.weight"] = layer.attention.self.value.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.attention.v_proj.bias"] = layer.attention.self.value.bias.detach().to(torch.float32).contiguous()
+
+        transformed_weights[f"{prefix}.attention.out_proj.weight"] = layer.attention.output.dense.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.attention.out_proj.bias"] = layer.attention.output.dense.bias.detach().to(torch.float32).contiguous()
+
+        # Attention LayerNorm
+        transformed_weights[f"{prefix}.attention_norm.weight"] = layer.attention.output.LayerNorm.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.attention_norm.bias"] = layer.attention.output.LayerNorm.bias.detach().to(torch.float32).contiguous()
+
+        # Intermediate FFN
+        transformed_weights[f"{prefix}.intermediate.weight"] = layer.intermediate.dense.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.intermediate.bias"] = layer.intermediate.dense.bias.detach().to(torch.float32).contiguous()
+
+        # Output FFN
+        transformed_weights[f"{prefix}.output_dense.weight"] = layer.output.dense.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.output_dense.bias"] = layer.output.dense.bias.detach().to(torch.float32).contiguous()
+
+        # Output LayerNorm
+        transformed_weights[f"{prefix}.output_norm.weight"] = layer.output.LayerNorm.weight.detach().to(torch.float32).contiguous()
+        transformed_weights[f"{prefix}.output_norm.bias"] = layer.output.LayerNorm.bias.detach().to(torch.float32).contiguous()
+
+    # Pooler
+    if hasattr(model, "pooler") and model.pooler is not None:
+        transformed_weights["pooler.dense.weight"] = model.pooler.dense.weight.detach().to(torch.float32).contiguous()
+        transformed_weights["pooler.dense.bias"] = model.pooler.dense.bias.detach().to(torch.float32).contiguous()
+
+    weights_path = output_dir / "model.safetensors"
+    print(f"[*] Saving SafeTensors weights to {weights_path}...")
+    save_file(transformed_weights, str(weights_path))
+
+    tok_path = output_dir / "tokenizer.json"
+    print(f"[*] Saving Tokenizer to {tok_path}...")
+    tokenizer.save_pretrained(str(output_dir))
+
+    # Reference inference
+    print("[*] Generating reference verification sequence...")
+    prompt = "Hello world, BERT embeddings!"
+    enc = tokenizer(prompt, return_tensors="pt")
+    with torch.no_grad():
+        out = model(**enc)
+        seq_output = out.last_hidden_state[0].tolist()
+        pooled_output = out.pooler_output[0].tolist() if getattr(out, "pooler_output", None) is not None else []
+
+    reference_meta = {
+        "model_id": model_id,
+        "prompt": prompt,
+        "input_ids": enc.input_ids[0].tolist(),
+        "token_type_ids": enc.token_type_ids[0].tolist() if "token_type_ids" in enc else [0] * len(enc.input_ids[0]),
+        "first_5_seq_output": seq_output[0][:5],
+        "first_5_pooled_output": pooled_output[:5] if pooled_output else [],
+        "pooled_output": pooled_output,
+    }
+    with open(output_dir / "reference.json", "w") as f:
+        json.dump(reference_meta, f, indent=2)
+
+    print(f"[✓] Model '{model_id}' successfully converted to {output_dir}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Convert Hugging Face models to neural-network-engine format.")
-    parser.add_argument("--model", type=str, default="gpt2", choices=["gpt2", "tinyllamas"], help="Model architecture")
+    parser.add_argument("--model", type=str, default="gpt2", choices=["gpt2", "tinyllamas", "minilm"], help="Model architecture")
     parser.add_argument("--output-dir", type=str, default=None, help="Destination output directory")
     args = parser.parse_args()
 
@@ -213,6 +299,8 @@ def main():
         convert_gpt2("gpt2", output_dir)
     elif args.model == "tinyllamas":
         convert_tinyllamas("Xenova/llama2.c-stories15M", output_dir)
+    elif args.model == "minilm":
+        convert_bert("sentence-transformers/all-MiniLM-L6-v2", output_dir)
 
 
 if __name__ == "__main__":

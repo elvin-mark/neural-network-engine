@@ -51,6 +51,34 @@ impl BertConfig {
             layer_norm_eps: 1e-6,
         }
     }
+
+    /// Sentence-Transformers all-MiniLM-L6-v2 configuration.
+    pub fn all_minilm_l6_v2() -> Self {
+        Self {
+            vocab_size: 30522,
+            d_model: 384,
+            num_layers: 6,
+            num_heads: 12,
+            d_ff: 1536,
+            max_position_embeddings: 512,
+            type_vocab_size: 2,
+            layer_norm_eps: 1e-12,
+        }
+    }
+
+    /// TinyBERT 4-layer 312-dim configuration (`huawei-noah/TinyBERT_General_4L_312D`).
+    pub fn tinybert_4l() -> Self {
+        Self {
+            vocab_size: 30522,
+            d_model: 312,
+            num_layers: 4,
+            num_heads: 12,
+            d_ff: 1200,
+            max_position_embeddings: 512,
+            type_vocab_size: 2,
+            layer_norm_eps: 1e-12,
+        }
+    }
 }
 
 /// BERT Embeddings module combining Word, Position, and Token-Type (Segment) embeddings.
@@ -306,6 +334,75 @@ impl BertModel {
         let pooled_out = self.pooler.forward_pooler(&seq_out)?;
         Ok((seq_out, pooled_out))
     }
+
+    /// Loads model weights from an in-memory dictionary of tensors.
+    pub fn load_weights(&mut self, weights: &std::collections::HashMap<String, crate::tensor::RawTensor>) -> Result<()> {
+        let set_tensor = |target: &mut Tensor, key: &str| -> Result<()> {
+            if let Some(raw) = weights.get(key) {
+                target.set_data(raw.clone());
+                Ok(())
+            } else {
+                Err(EngineError::InvalidArgument(format!(
+                    "Missing expected weight '{}' in weights map",
+                    key
+                )))
+            }
+        };
+
+        let set_opt_tensor = |target: &mut Option<Tensor>, key: &str| -> Result<()> {
+            if let Some(ref mut t) = target {
+                set_tensor(t, key)
+            } else {
+                Ok(())
+            }
+        };
+
+        // Embeddings
+        set_tensor(&mut self.embeddings.word_embeddings.weight, "embeddings.word_embeddings.weight")?;
+        set_tensor(&mut self.embeddings.position_embeddings.weight, "embeddings.position_embeddings.weight")?;
+        set_tensor(&mut self.embeddings.token_type_embeddings.weight, "embeddings.token_type_embeddings.weight")?;
+        set_tensor(&mut self.embeddings.layer_norm.weight, "embeddings.layer_norm.weight")?;
+        set_tensor(&mut self.embeddings.layer_norm.bias, "embeddings.layer_norm.bias")?;
+
+        // Encoder layers
+        for (i, layer) in self.encoder.layers.iter_mut().enumerate() {
+            set_tensor(&mut layer.attention.q_proj.weight, &format!("encoder.layers.{}.attention.q_proj.weight", i))?;
+            set_opt_tensor(&mut layer.attention.q_proj.bias, &format!("encoder.layers.{}.attention.q_proj.bias", i))?;
+            set_tensor(&mut layer.attention.k_proj.weight, &format!("encoder.layers.{}.attention.k_proj.weight", i))?;
+            set_opt_tensor(&mut layer.attention.k_proj.bias, &format!("encoder.layers.{}.attention.k_proj.bias", i))?;
+            set_tensor(&mut layer.attention.v_proj.weight, &format!("encoder.layers.{}.attention.v_proj.weight", i))?;
+            set_opt_tensor(&mut layer.attention.v_proj.bias, &format!("encoder.layers.{}.attention.v_proj.bias", i))?;
+
+            set_tensor(&mut layer.attention.out_proj.weight, &format!("encoder.layers.{}.attention.out_proj.weight", i))?;
+            set_opt_tensor(&mut layer.attention.out_proj.bias, &format!("encoder.layers.{}.attention.out_proj.bias", i))?;
+
+            set_tensor(&mut layer.attention_norm.weight, &format!("encoder.layers.{}.attention_norm.weight", i))?;
+            set_tensor(&mut layer.attention_norm.bias, &format!("encoder.layers.{}.attention_norm.bias", i))?;
+
+            set_tensor(&mut layer.intermediate.weight, &format!("encoder.layers.{}.intermediate.weight", i))?;
+            set_opt_tensor(&mut layer.intermediate.bias, &format!("encoder.layers.{}.intermediate.bias", i))?;
+
+            set_tensor(&mut layer.output_dense.weight, &format!("encoder.layers.{}.output_dense.weight", i))?;
+            set_opt_tensor(&mut layer.output_dense.bias, &format!("encoder.layers.{}.output_dense.bias", i))?;
+
+            set_tensor(&mut layer.output_norm.weight, &format!("encoder.layers.{}.output_norm.weight", i))?;
+            set_tensor(&mut layer.output_norm.bias, &format!("encoder.layers.{}.output_norm.bias", i))?;
+        }
+
+        // Pooler (optional if model checkpoint includes pooler)
+        if weights.contains_key("pooler.dense.weight") {
+            set_tensor(&mut self.pooler.dense.weight, "pooler.dense.weight")?;
+            set_opt_tensor(&mut self.pooler.dense.bias, "pooler.dense.bias")?;
+        }
+
+        Ok(())
+    }
+
+    /// Loads model weights directly from a SafeTensors file.
+    pub fn load_safetensors<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<()> {
+        let weights = crate::io::load_safetensors(path)?;
+        self.load_weights(&weights)
+    }
 }
 
 impl Module for BertModel {
@@ -337,6 +434,26 @@ impl BertForQuestionAnswering {
         // Linear projecting d_model -> 2 (start_logit, end_logit)
         let qa_outputs = Linear::new(d_model, 2);
         Self { bert, qa_outputs }
+    }
+
+    /// Loads weights from an in-memory dictionary of tensors.
+    pub fn load_weights(&mut self, weights: &std::collections::HashMap<String, crate::tensor::RawTensor>) -> Result<()> {
+        self.bert.load_weights(weights)?;
+        if let Some(w) = weights.get("qa_outputs.weight") {
+            self.qa_outputs.weight.set_data(w.clone());
+        }
+        if let Some(b) = weights.get("qa_outputs.bias") {
+            if let Some(ref mut bias) = self.qa_outputs.bias {
+                bias.set_data(b.clone());
+            }
+        }
+        Ok(())
+    }
+
+    /// Loads model weights directly from a SafeTensors file.
+    pub fn load_safetensors<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<()> {
+        let weights = crate::io::load_safetensors(path)?;
+        self.load_weights(&weights)
     }
 
     /// Computes start and end logits for question answering span extraction.
@@ -389,6 +506,17 @@ impl BertForSequenceEmbedding {
         Self {
             bert: BertModel::new(config),
         }
+    }
+
+    /// Loads weights from an in-memory dictionary of tensors.
+    pub fn load_weights(&mut self, weights: &std::collections::HashMap<String, crate::tensor::RawTensor>) -> Result<()> {
+        self.bert.load_weights(weights)
+    }
+
+    /// Loads model weights directly from a SafeTensors file.
+    pub fn load_safetensors<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<()> {
+        let weights = crate::io::load_safetensors(path)?;
+        self.load_weights(&weights)
     }
 
     /// Computes pooled sentence embeddings of shape [B, d_model].
