@@ -29,7 +29,7 @@ Data is stored within `Storage`, which wraps either an `Arc<Vec<f32>>` (standard
 
 ### Strides and Indexing
 For an $N$-dimensional index $(i_0, i_1, \dots, i_{N-1})$, the flat buffer offset is computed as:
-$$\text{flat\_index} = \text{offset} + \sum_{d=0}^{N-1} i_d \times \text{strides}[d]$$
+$$\text{flat}_{\text{index}} = \text{offset} + \sum_{d=0}^{N-1} i_d \times \text{strides}[d]$$
 
 A tensor is **contiguous** (row-major / C-contiguous) if:
 $$\text{strides}[d] = \prod_{k=d+1}^{N-1} \text{shape}[k]$$

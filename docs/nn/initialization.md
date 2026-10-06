@@ -12,8 +12,8 @@ Mathematically principled weight initialization algorithms to maintain stable va
 
 For a tensor with shape $[D_{\text{out}}, D_{\text{in}}, K_1, K_2, \dots]$, the receptive field spatial size is:
 $$R = \prod_{i=1}^M K_i$$
-- **$\text{fan\_in} = D_{\text{in}} \times R$**: Number of input connections per neuron.
-- **$\text{fan\_out} = D_{\text{out}} \times R$**: Number of output connections per neuron.
+- **$\text{fan}_{\text{in}} = D_{\text{in}} \times R$**: Number of input connections per neuron.
+- **$\text{fan}_{\text{out}} = D_{\text{out}} \times R$**: Number of output connections per neuron.
 
 ```rust
 pub fn calculate_fan_in_and_fan_out(tensor: &Tensor) -> Result<(usize, usize)>
@@ -47,11 +47,11 @@ $$\text{gain}(\text{LeakyReLU}(\alpha)) = \sqrt{\frac{2}{1 + \alpha^2}}$$
 ### 1. Xavier / Glorot Initialization
 Maintains activation and backpropagation variance under linear/symmetric activations (Tanh, Sigmoid):
 
-- **Uniform**: $\mathcal{U}(-a, a)$ with $a = \text{gain} \times \sqrt{\frac{6}{\text{fan\_in} + \text{fan\_out}}}$
+- **Uniform**: $\mathcal{U}(-a, a)$ with $a = \text{gain} \times \sqrt{\frac{6}{\text{fan}_{\text{in}} + \text{fan}_{\text{out}}}}$
   ```rust
   pub fn xavier_uniform_(tensor: &mut Tensor, gain: f32) -> Result<()>
   ```
-- **Normal**: $\mathcal{N}(0, \sigma^2)$ with $\sigma = \text{gain} \times \sqrt{\frac{2}{\text{fan\_in} + \text{fan\_out}}}$
+- **Normal**: $\mathcal{N}(0, \sigma^2)$ with $\sigma = \text{gain} \times \sqrt{\frac{2}{\text{fan}_{\text{in}} + \text{fan}_{\text{out}}}}$
   ```rust
   pub fn xavier_normal_(tensor: &mut Tensor, gain: f32) -> Result<()>
   ```

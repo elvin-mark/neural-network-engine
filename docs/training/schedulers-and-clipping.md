@@ -24,7 +24,7 @@ pub trait LRScheduler {
 
 ### 1. `StepLR`
 Decays learning rate by factor $\gamma$ every `step_size` epochs:
-$$\eta_t = \eta_0 \cdot \gamma^{\lfloor t / \text{step\_size} \rfloor}$$
+$$\eta_t = \eta_0 \cdot \gamma^{\lfloor t / \text{step}_{\text{size}} \rfloor}$$
 
 ```rust
 let mut scheduler = StepLR::new(initial_lr: 0.1, step_size: 30, gamma: 0.1);
@@ -64,16 +64,16 @@ Prevents exploding gradients in recurrent models (RNNs/LSTMs) and deep transform
 ### 1. Global $L_2$ Norm Clipping (`clip_grad_norm`)
 Computes the total Euclidean norm over all parameter gradients concatenated:
 $$\|g\|_2 = \sqrt{\sum_{\theta \in \Theta} \sum_{i} g_{\theta, i}^2}$$
-If $\|g\|_2 > \text{max\_norm}$, all gradients are scaled proportionally in-place:
-$$g \leftarrow g \times \frac{\text{max\_norm}}{\|g\|_2 + 10^{-6}}$$
+If $\|g\|_2 > \text{max}_{\text{norm}}$, all gradients are scaled proportionally in-place:
+$$g \leftarrow g \times \frac{\text{max}_{\text{norm}}}{\|g\|_2 + 10^{-6}}$$
 
 ```rust
 let total_norm = clip_grad_norm(&model.parameters(), max_norm: 1.0)?;
 ```
 
 ### 2. Value Clipping (`clip_grad_value`)
-Clamps each gradient coordinate independently to $[-\text{clip\_value}, \text{clip\_value}]$:
-$$g_i \leftarrow \max(-\text{clip\_value}, \min(\text{clip\_value}, g_i))$$
+Clamps each gradient coordinate independently to $[-\text{clip}_{\text{value}}, \text{clip}_{\text{value}}]$:
+$$g_i \leftarrow \max(-\text{clip}_{\text{value}}, \min(\text{clip}_{\text{value}}, g_i))$$
 
 ```rust
 clip_grad_value(&model.parameters(), clip_value: 0.5)?;

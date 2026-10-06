@@ -30,7 +30,7 @@ graph TD
 
 ### 1. `BertForQuestionAnswering`
 Applies a single linear projection $[D, 2]$ to the final encoder output:
-$$(\text{start\_logits}, \text{end\_logits}) = \text{Linear}(H)$$
+$$(\text{start}_{\text{logits}}, \text{end}_{\text{logits}}) = \text{Linear}(H)$$
 For a given question and context token span, the model extracts the sub-slice $(s, e)$ that maximizes $S[s] + E[e]$.
 
 ### 2. `BertForSequenceEmbedding`

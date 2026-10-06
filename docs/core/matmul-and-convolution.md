@@ -77,7 +77,7 @@ $$H_{\text{out}} = \left\lfloor \frac{H_{\text{in}} + 2 \times \text{padding}_h 
 $$W_{\text{out}} = \left\lfloor \frac{W_{\text{in}} + 2 \times \text{padding}_w - \text{dilation}_w \times (\text{kernel}_w - 1) - 1}{\text{stride}_w} \right\rfloor + 1$$
 
 ### Backward Pass (`col2im`)
-During backpropagation, gradients w.r.t input activations are accumulated back from the column gradient matrix to the original spatial dimensions via `col2im`, correctly summing overlapping receptive fields when $\text{stride} < \text{kernel\_size}$.
+During backpropagation, gradients w.r.t input activations are accumulated back from the column gradient matrix to the original spatial dimensions via `col2im`, correctly summing overlapping receptive fields when $\text{stride} < \text{kernel}_{\text{size}}$.
 
 ---
 

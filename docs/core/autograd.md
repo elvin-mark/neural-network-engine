@@ -71,7 +71,7 @@ pub fn unbroadcast_to(grad: &RawTensor, target_shape: &[usize]) -> Result<RawTen
 ```
 The algorithm:
 1. Sums out all extra leading dimensions ($N_{\text{grad}} > N_{\text{target}}$).
-2. Sums out any axes where $\text{target\_shape}[i] = 1$ while $\text{grad\_shape}[i] > 1$ with `keepdim = true`.
+2. Sums out any axes where $\text{target}_{\text{shape}}[i] = 1$ while $\text{grad}_{\text{shape}}[i] > 1$ with `keepdim = true`.
 
 ---
 
