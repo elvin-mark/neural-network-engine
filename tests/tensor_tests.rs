@@ -82,3 +82,46 @@ fn test_slicing_and_concatenation() {
     let contig = slice.to_contiguous();
     assert_eq!(contig.as_slice(), &[3.0, 4.0, 5.0, 6.0]);
 }
+
+#[test]
+fn test_gemv_a_bt_m1_parity() {
+    use neural_network_engine::tensor::matmul::{matmul, matmul_transposed_b};
+
+    // Test multiple non-trivial shapes (powers of two, odd numbers, primes)
+    let test_cases = [(1, 7, 13), (1, 32, 64), (1, 65, 127), (1, 384, 512)];
+
+    for (m, k, n) in test_cases {
+        let a_vals: Vec<f32> = (0..m * k).map(|i| (i as f32 * 0.17).sin()).collect();
+        let b_vals: Vec<f32> = (0..n * k).map(|i| (i as f32 * 0.31).cos()).collect();
+
+        let a = RawTensor::from_slice(&a_vals, &[m, k]);
+        let b = RawTensor::from_slice(&b_vals, &[n, k]);
+
+        // 1. Reference using standard matmul with explicitly transposed B
+        let b_t = b.transpose(0, 1).unwrap().to_contiguous();
+        let ref_c = matmul(&a, &b_t).unwrap();
+
+        // 2. Transposed GEMV fast-path C = A * B^T
+        let fast_c = matmul_transposed_b(&a, &b).unwrap();
+
+        assert_eq!(ref_c.shape(), fast_c.shape());
+        assert_eq!(fast_c.shape(), &[m, n]);
+
+        let ref_slice = ref_c.as_slice();
+        let fast_slice = fast_c.as_slice();
+
+        for i in 0..ref_slice.len() {
+            let diff = (ref_slice[i] - fast_slice[i]).abs();
+            assert!(
+                diff < 1e-4,
+                "Mismatch at index {} for shape [{}, {}, {}]: ref {} vs fast {}",
+                i,
+                m,
+                k,
+                n,
+                ref_slice[i],
+                fast_slice[i]
+            );
+        }
+    }
+}

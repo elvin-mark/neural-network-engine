@@ -57,6 +57,12 @@ pub fn gemm_2d_a_bt_contiguous(m: usize, k: usize, n: usize, a: &[f32], b: &[f32
         return;
     }
 
+    // Fast-path: M = 1 GEMV (Matrix-Vector Multiplication where weights are stored row-major W [N, K])
+    if m == 1 {
+        gemv_a_bt_m1_parallel(k, n, a, b, c);
+        return;
+    }
+
     #[cfg(target_arch = "x86_64")]
     {
         if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
@@ -855,6 +861,249 @@ unsafe fn gemv_m1_avx2_fma(
             j += 1;
         }
     }
+}
+
+/// Fast-path matrix-vector product for M = 1 where B is stored row-major:
+/// C = a * B^T, where `a` is [1, K], `B` is [N, K] row-major, and `C` is [1, N].
+/// This is the primary kernel executed by Linear layers during autoregressive token decoding.
+/// Parallelized across N (the rows of B) using multi-accumulator AVX2+FMA vectorization.
+pub fn gemv_a_bt_m1_parallel(k: usize, n: usize, a: &[f32], b: &[f32], c: &mut [f32]) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+            unsafe {
+                gemv_a_bt_m1_avx2_fma_parallel(k, n, a, b, c);
+            }
+            return;
+        }
+    }
+
+    gemv_a_bt_m1_portable_parallel(k, n, a, b, c);
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma")]
+unsafe fn gemv_a_bt_m1_avx2_fma_parallel(k: usize, n: usize, a: &[f32], b: &[f32], c: &mut [f32]) {
+    let num_threads = rayon::current_num_threads();
+    let chunk_size = (n.div_ceil(num_threads)).div_ceil(8) * 8;
+    let chunk_size = chunk_size.max(16);
+
+    c.par_chunks_mut(chunk_size)
+        .enumerate()
+        .for_each(|(chunk_idx, c_sub)| {
+            let j_start = chunk_idx * chunk_size;
+            let j_len = c_sub.len();
+            let a_ptr = a.as_ptr();
+
+            let mut j = 0;
+            // 8-row unrolled AVX2+FMA kernel
+            while j + 8 <= j_len {
+                let row_idx = j_start + j;
+                let b_ptr0 = b.as_ptr().add(row_idx * k);
+                let b_ptr1 = b.as_ptr().add((row_idx + 1) * k);
+                let b_ptr2 = b.as_ptr().add((row_idx + 2) * k);
+                let b_ptr3 = b.as_ptr().add((row_idx + 3) * k);
+                let b_ptr4 = b.as_ptr().add((row_idx + 4) * k);
+                let b_ptr5 = b.as_ptr().add((row_idx + 5) * k);
+                let b_ptr6 = b.as_ptr().add((row_idx + 6) * k);
+                let b_ptr7 = b.as_ptr().add((row_idx + 7) * k);
+
+                let mut acc0 = _mm256_setzero_ps();
+                let mut acc1 = _mm256_setzero_ps();
+                let mut acc2 = _mm256_setzero_ps();
+                let mut acc3 = _mm256_setzero_ps();
+                let mut acc4 = _mm256_setzero_ps();
+                let mut acc5 = _mm256_setzero_ps();
+                let mut acc6 = _mm256_setzero_ps();
+                let mut acc7 = _mm256_setzero_ps();
+
+                let mut p = 0;
+                while p + 8 <= k {
+                    let va = _mm256_loadu_ps(a_ptr.add(p));
+
+                    let vb0 = _mm256_loadu_ps(b_ptr0.add(p));
+                    let vb1 = _mm256_loadu_ps(b_ptr1.add(p));
+                    let vb2 = _mm256_loadu_ps(b_ptr2.add(p));
+                    let vb3 = _mm256_loadu_ps(b_ptr3.add(p));
+
+                    acc0 = _mm256_fmadd_ps(va, vb0, acc0);
+                    acc1 = _mm256_fmadd_ps(va, vb1, acc1);
+                    acc2 = _mm256_fmadd_ps(va, vb2, acc2);
+                    acc3 = _mm256_fmadd_ps(va, vb3, acc3);
+
+                    let vb4 = _mm256_loadu_ps(b_ptr4.add(p));
+                    let vb5 = _mm256_loadu_ps(b_ptr5.add(p));
+                    let vb6 = _mm256_loadu_ps(b_ptr6.add(p));
+                    let vb7 = _mm256_loadu_ps(b_ptr7.add(p));
+
+                    acc4 = _mm256_fmadd_ps(va, vb4, acc4);
+                    acc5 = _mm256_fmadd_ps(va, vb5, acc5);
+                    acc6 = _mm256_fmadd_ps(va, vb6, acc6);
+                    acc7 = _mm256_fmadd_ps(va, vb7, acc7);
+
+                    p += 8;
+                }
+
+                let mut s0 = hsum256_ps(acc0);
+                let mut s1 = hsum256_ps(acc1);
+                let mut s2 = hsum256_ps(acc2);
+                let mut s3 = hsum256_ps(acc3);
+                let mut s4 = hsum256_ps(acc4);
+                let mut s5 = hsum256_ps(acc5);
+                let mut s6 = hsum256_ps(acc6);
+                let mut s7 = hsum256_ps(acc7);
+
+                while p < k {
+                    let a_val = *a_ptr.add(p);
+                    s0 += a_val * *b_ptr0.add(p);
+                    s1 += a_val * *b_ptr1.add(p);
+                    s2 += a_val * *b_ptr2.add(p);
+                    s3 += a_val * *b_ptr3.add(p);
+                    s4 += a_val * *b_ptr4.add(p);
+                    s5 += a_val * *b_ptr5.add(p);
+                    s6 += a_val * *b_ptr6.add(p);
+                    s7 += a_val * *b_ptr7.add(p);
+                    p += 1;
+                }
+
+                c_sub[j] += s0;
+                c_sub[j + 1] += s1;
+                c_sub[j + 2] += s2;
+                c_sub[j + 3] += s3;
+                c_sub[j + 4] += s4;
+                c_sub[j + 5] += s5;
+                c_sub[j + 6] += s6;
+                c_sub[j + 7] += s7;
+
+                j += 8;
+            }
+
+            // 4-row unrolled fallback
+            while j + 4 <= j_len {
+                let row_idx = j_start + j;
+                let b_ptr0 = b.as_ptr().add(row_idx * k);
+                let b_ptr1 = b.as_ptr().add((row_idx + 1) * k);
+                let b_ptr2 = b.as_ptr().add((row_idx + 2) * k);
+                let b_ptr3 = b.as_ptr().add((row_idx + 3) * k);
+
+                let mut acc0 = _mm256_setzero_ps();
+                let mut acc1 = _mm256_setzero_ps();
+                let mut acc2 = _mm256_setzero_ps();
+                let mut acc3 = _mm256_setzero_ps();
+
+                let mut p = 0;
+                while p + 8 <= k {
+                    let va = _mm256_loadu_ps(a_ptr.add(p));
+                    let vb0 = _mm256_loadu_ps(b_ptr0.add(p));
+                    let vb1 = _mm256_loadu_ps(b_ptr1.add(p));
+                    let vb2 = _mm256_loadu_ps(b_ptr2.add(p));
+                    let vb3 = _mm256_loadu_ps(b_ptr3.add(p));
+
+                    acc0 = _mm256_fmadd_ps(va, vb0, acc0);
+                    acc1 = _mm256_fmadd_ps(va, vb1, acc1);
+                    acc2 = _mm256_fmadd_ps(va, vb2, acc2);
+                    acc3 = _mm256_fmadd_ps(va, vb3, acc3);
+
+                    p += 8;
+                }
+
+                let mut s0 = hsum256_ps(acc0);
+                let mut s1 = hsum256_ps(acc1);
+                let mut s2 = hsum256_ps(acc2);
+                let mut s3 = hsum256_ps(acc3);
+
+                while p < k {
+                    let a_val = *a_ptr.add(p);
+                    s0 += a_val * *b_ptr0.add(p);
+                    s1 += a_val * *b_ptr1.add(p);
+                    s2 += a_val * *b_ptr2.add(p);
+                    s3 += a_val * *b_ptr3.add(p);
+                    p += 1;
+                }
+
+                c_sub[j] += s0;
+                c_sub[j + 1] += s1;
+                c_sub[j + 2] += s2;
+                c_sub[j + 3] += s3;
+
+                j += 4;
+            }
+
+            // Remainder 1-row loop
+            while j < j_len {
+                let row_idx = j_start + j;
+                let b_ptr0 = b.as_ptr().add(row_idx * k);
+                let mut acc0 = _mm256_setzero_ps();
+
+                let mut p = 0;
+                while p + 8 <= k {
+                    let va = _mm256_loadu_ps(a_ptr.add(p));
+                    let vb0 = _mm256_loadu_ps(b_ptr0.add(p));
+                    acc0 = _mm256_fmadd_ps(va, vb0, acc0);
+                    p += 8;
+                }
+
+                let mut s0 = hsum256_ps(acc0);
+                while p < k {
+                    s0 += *a_ptr.add(p) * *b_ptr0.add(p);
+                    p += 1;
+                }
+
+                c_sub[j] += s0;
+                j += 1;
+            }
+        });
+}
+
+fn gemv_a_bt_m1_portable_parallel(k: usize, n: usize, a: &[f32], b: &[f32], c: &mut [f32]) {
+    let num_threads = rayon::current_num_threads();
+    let chunk_size = (n.div_ceil(num_threads)).div_ceil(4) * 4;
+    let chunk_size = chunk_size.max(16);
+
+    c.par_chunks_mut(chunk_size)
+        .enumerate()
+        .for_each(|(chunk_idx, c_sub)| {
+            let j_start = chunk_idx * chunk_size;
+            let j_len = c_sub.len();
+            let mut j = 0;
+            while j + 4 <= j_len {
+                let row_idx = j_start + j;
+                let b_row0 = &b[row_idx * k..(row_idx + 1) * k];
+                let b_row1 = &b[(row_idx + 1) * k..(row_idx + 2) * k];
+                let b_row2 = &b[(row_idx + 2) * k..(row_idx + 3) * k];
+                let b_row3 = &b[(row_idx + 3) * k..(row_idx + 4) * k];
+
+                let mut s0 = 0.0f32;
+                let mut s1 = 0.0f32;
+                let mut s2 = 0.0f32;
+                let mut s3 = 0.0f32;
+
+                for p in 0..k {
+                    let a_val = a[p];
+                    s0 += a_val * b_row0[p];
+                    s1 += a_val * b_row1[p];
+                    s2 += a_val * b_row2[p];
+                    s3 += a_val * b_row3[p];
+                }
+
+                c_sub[j] += s0;
+                c_sub[j + 1] += s1;
+                c_sub[j + 2] += s2;
+                c_sub[j + 3] += s3;
+                j += 4;
+            }
+
+            while j < j_len {
+                let row_idx = j_start + j;
+                let b_row = &b[row_idx * k..(row_idx + 1) * k];
+                let mut s = 0.0f32;
+                for p in 0..k {
+                    s += a[p] * b_row[p];
+                }
+                c_sub[j] += s;
+                j += 1;
+            }
+        });
 }
 
 /// Computes matrix multiplication between two tensors, supporting arbitrary batch dimensions and broadcasting.
