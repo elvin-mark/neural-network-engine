@@ -78,11 +78,12 @@ pub mod prelude {
     pub use crate::tensor::{PoolStats, RawTensor, TensorPool};
     pub use crate::tokenizer::{ByteLevelBPE, HfTokenizer, TokenizerKind};
     pub use crate::utils::{
-        compute_log_mel_spectrogram, create_mel_filterbank, generate_cifar100_dataset,
-        generate_cifar10_dataset, generate_digits_dataset, generate_mnist_dataset,
-        generate_qa_dataset, generate_semantic_similarity_dataset, generate_spiral_dataset,
-        generate_spoken_dataset, generate_tinystories_dataset, generate_xor_dataset, gradcheck,
-        hz_to_mel, load_cifar100_dataset, load_cifar100_from_binary, load_cifar10_dataset,
+        compute_log_mel_spectrogram, compute_whisper_mel_spectrogram, create_mel_filterbank,
+        create_whisper_mel_filterbank, generate_cifar100_dataset, generate_cifar10_dataset,
+        generate_digits_dataset, generate_mnist_dataset, generate_qa_dataset,
+        generate_semantic_similarity_dataset, generate_spiral_dataset, generate_spoken_dataset,
+        generate_tinystories_dataset, generate_xor_dataset, gradcheck, hz_to_mel,
+        load_cifar100_dataset, load_cifar100_from_binary, load_cifar10_dataset,
         load_cifar10_from_binary, load_digits_dataset, load_digits_from_csv, load_iris_dataset,
         load_iris_from_csv, load_mnist_dataset, load_mnist_from_idx, load_spoken_dataset,
         load_tinystories_dataset, mel_to_hz, parse_wav_bytes, read_wav_file, resample_linear,

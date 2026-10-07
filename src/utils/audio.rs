@@ -3,6 +3,7 @@
 
 use crate::tensor::RawTensor;
 use rand::Rng;
+use rayon::prelude::*;
 use std::f32::consts::PI;
 
 /// Converts frequency in Hertz to Mel scale.
@@ -138,6 +139,169 @@ pub fn compute_log_mel_spectrogram(
     }
 
     RawTensor::from_vec(mel_spectrogram, vec![n_mels, num_frames])
+}
+
+/// Slaney-style Hertz to Mel conversion (linear below 1000 Hz, logarithmic above).
+fn slaney_hz_to_mel(hz: f32) -> f32 {
+    let min_log_hertz = 1000.0f32;
+    let min_log_mel = 15.0f32;
+    let logstep = 27.0f32 / 6.4f32.ln();
+
+    if hz < min_log_hertz {
+        3.0 * hz / 200.0
+    } else {
+        min_log_mel + (hz / min_log_hertz).ln() * logstep
+    }
+}
+
+/// Slaney-style Mel to Hertz conversion.
+fn slaney_mel_to_hz(mel: f32) -> f32 {
+    let min_log_hertz = 1000.0f32;
+    let min_log_mel = 15.0f32;
+    let logstep = 6.4f32.ln() / 27.0f32;
+
+    if mel < min_log_mel {
+        200.0 * mel / 3.0
+    } else {
+        min_log_hertz * (logstep * (mel - min_log_mel)).exp()
+    }
+}
+
+/// Constructs the exact 80-channel Slaney triangular Mel filterbank matrix of shape `[201, 80]`
+/// matching OpenAI Whisper / HuggingFace `WhisperFeatureExtractor`.
+pub fn create_whisper_mel_filterbank() -> Vec<Vec<f32>> {
+    let num_mel_filters = 80;
+    let num_freq_bins = 201; // 400 // 2 + 1
+    let min_freq = 0.0f32;
+    let max_freq = 8000.0f32;
+
+    let mel_min = slaney_hz_to_mel(min_freq);
+    let mel_max = slaney_hz_to_mel(max_freq);
+
+    let mut filter_freqs = Vec::with_capacity(num_mel_filters + 2);
+    for i in 0..(num_mel_filters + 2) {
+        let mel = mel_min + (mel_max - mel_min) * (i as f32) / ((num_mel_filters + 1) as f32);
+        filter_freqs.push(slaney_mel_to_hz(mel));
+    }
+
+    let mut fft_freqs = Vec::with_capacity(num_freq_bins);
+    for k in 0..num_freq_bins {
+        fft_freqs.push((k as f32) * max_freq / ((num_freq_bins - 1) as f32));
+    }
+
+    let mut filter_diff = Vec::with_capacity(num_mel_filters + 1);
+    for i in 0..(num_mel_filters + 1) {
+        filter_diff.push(filter_freqs[i + 1] - filter_freqs[i]);
+    }
+
+    // mel_filters: [num_freq_bins, num_mel_filters]
+    let mut mel_filters = vec![vec![0.0f32; num_mel_filters]; num_freq_bins];
+
+    for i in 0..num_mel_filters {
+        let f_diff_down = filter_diff[i];
+        let f_diff_up = filter_diff[i + 1];
+        let enorm = 2.0 / (filter_freqs[i + 2] - filter_freqs[i]);
+
+        for (k, &f) in fft_freqs.iter().enumerate().take(num_freq_bins) {
+            let slope_down = -(filter_freqs[i] - f) / f_diff_down;
+            let slope_up = (filter_freqs[i + 2] - f) / f_diff_up;
+            let val = slope_down.min(slope_up).max(0.0);
+            mel_filters[k][i] = val * enorm;
+        }
+    }
+
+    mel_filters
+}
+
+/// Computes the official 80-channel Log-Mel Spectrogram padded to exactly 3000 frames (30 seconds)
+/// matching OpenAI Whisper's acoustic frontend and `WhisperFeatureExtractor`.
+pub fn compute_whisper_mel_spectrogram(audio: &[f32]) -> RawTensor {
+    let target_len = 480_000; // 30 seconds at 16,000 Hz
+    let n_fft = 400;
+    let hop_length = 160;
+    let num_mel_bins = 80;
+    let whisper_frames = 3000;
+
+    // 1. Pad or truncate audio to 30 seconds (480,000 samples)
+    let mut audio_padded = Vec::with_capacity(target_len);
+    if audio.len() < target_len {
+        audio_padded.extend_from_slice(audio);
+        audio_padded.resize(target_len, 0.0);
+    } else {
+        audio_padded.extend_from_slice(&audio[..target_len]);
+    }
+
+    // 2. Reflect padding of n_fft / 2 = 200 on both sides (center = True)
+    let pad_amount = n_fft / 2;
+    let mut audio_centered = Vec::with_capacity(audio_padded.len() + 2 * pad_amount);
+
+    // Left reflect padding (e.g. indices 200, 199, ..., 1)
+    for p in (1..=pad_amount).rev() {
+        audio_centered.push(audio_padded[p]);
+    }
+    audio_centered.extend_from_slice(&audio_padded);
+    // Right reflect padding
+    let last_idx = audio_padded.len() - 1;
+    for p in 1..=pad_amount {
+        audio_centered.push(audio_padded[last_idx.saturating_sub(p)]);
+    }
+
+    // 3. Pre-compute periodic Hann window: 0.5 - 0.5 * cos(2 * pi * n / N)
+    let mut window = Vec::with_capacity(n_fft);
+    for n in 0..n_fft {
+        window.push(0.5 * (1.0 - (2.0 * PI * (n as f32) / (n_fft as f32)).cos()));
+    }
+
+    // 4. Compute STFT power spectrogram
+    let filterbank = create_whisper_mel_filterbank();
+
+    let frame_mels: Vec<Vec<f32>> = (0..whisper_frames)
+        .into_par_iter()
+        .map(|frame_idx| {
+            let start = frame_idx * hop_length;
+            let mut windowed = vec![0.0f32; n_fft];
+            for i in 0..n_fft {
+                windowed[i] = audio_centered[start + i] * window[i];
+            }
+
+            let spectrum = compute_frame_spectrum(&windowed, n_fft); // 201 bins
+            let mut mels = vec![0.0f32; num_mel_bins];
+            for m in 0..num_mel_bins {
+                let mut energy = 0.0f32;
+                for bin in 0..201 {
+                    let p = spectrum[bin] * spectrum[bin];
+                    energy += p * filterbank[bin][m];
+                }
+                mels[m] = energy.max(1e-10).log10();
+            }
+            mels
+        })
+        .collect();
+
+    let mut mel_out = vec![0.0f32; num_mel_bins * whisper_frames];
+    for frame_idx in 0..whisper_frames {
+        for m in 0..num_mel_bins {
+            mel_out[m * whisper_frames + frame_idx] = frame_mels[frame_idx][m];
+        }
+    }
+
+    // 5. Dynamic range normalization:
+    // log_spec = np.maximum(log_spec, log_spec.max() - 8.0)
+    // log_spec = (log_spec + 4.0) / 4.0
+    let mut max_val = f32::NEG_INFINITY;
+    for &v in &mel_out {
+        if v > max_val {
+            max_val = v;
+        }
+    }
+
+    let floor_val = max_val - 8.0;
+    for v in &mut mel_out {
+        let clamped = v.max(floor_val);
+        *v = (clamped + 4.0) / 4.0;
+    }
+
+    RawTensor::from_vec(mel_out, vec![num_mel_bins, whisper_frames])
 }
 
 /// Spoken word vocabulary classes.

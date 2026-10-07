@@ -12,7 +12,9 @@ use neural_network_engine::error::{EngineError, Result};
 use neural_network_engine::models::whisper::{Whisper, WhisperConfig};
 use neural_network_engine::tensor::RawTensor;
 use neural_network_engine::tokenizer::HfTokenizer;
-use neural_network_engine::utils::audio::{compute_log_mel_spectrogram, read_wav_file, WavAudio};
+use neural_network_engine::utils::audio::{
+    compute_whisper_mel_spectrogram, read_wav_file, WavAudio,
+};
 use neural_network_engine::Tensor;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -315,35 +317,11 @@ fn sample_next_token(
     indexed[0].0
 }
 
-/// Prepares the 80-channel Log-Mel Spectrogram padded or trimmed to Whisper's 30-second window (3000 frames).
+/// Prepares the official 80-channel Log-Mel Spectrogram padded to Whisper's 30-second window (3000 frames).
 fn prepare_whisper_mel(wav: &WavAudio) -> Result<Tensor> {
-    let n_mels = 80;
-    let n_fft = 400;
-    let hop_length = 160;
-    let sample_rate = 16000;
-    let whisper_frames = 3000; // 30 seconds at 100 frames/sec
-
-    // 1. Compute raw log-mel spectrogram
-    let raw_mel = compute_log_mel_spectrogram(&wav.samples, sample_rate, n_fft, hop_length, n_mels);
-    let original_frames = raw_mel.shape()[1];
-
-    let raw_contiguous = raw_mel.to_contiguous();
-    let raw_slice = raw_contiguous.as_slice();
-
-    // 2. Pad or truncate along time dimension to exactly 3000 frames
-    let mut padded_mel = vec![0.0f32; n_mels * whisper_frames];
-    let copy_frames = original_frames.min(whisper_frames);
-
-    for m in 0..n_mels {
-        let src_start = m * original_frames;
-        let dst_start = m * whisper_frames;
-        padded_mel[dst_start..dst_start + copy_frames]
-            .copy_from_slice(&raw_slice[src_start..src_start + copy_frames]);
-    }
-
-    // Reshape to [1, n_mels, 3000]
-    let tensor_raw = RawTensor::from_vec(padded_mel, vec![1, n_mels, whisper_frames]);
-    Ok(Tensor::new(tensor_raw, false))
+    let mel = compute_whisper_mel_spectrogram(&wav.samples);
+    let batched = mel.unsqueeze(0)?;
+    Ok(Tensor::new(batched, false))
 }
 
 /// Identifies standard Whisper special prompt tokens by text or fallback IDs.
