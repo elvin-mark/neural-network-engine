@@ -68,7 +68,7 @@ ARGS:
 OPTIONS:
     -a, --audio <PATH>            Alternative option to specify the audio file
     -m, --model-dir <DIR>         Directory containing model.safetensors and tokenizer.json
-                                  [default: checkpoints/whisper]
+                                  (alias: --checkpoint-dir, -c) [default: checkpoints/whisper]
     -l, --language <LANG>         Target language code (e.g. en, fr, de, es, zh, ja)
                                   [default: en]
         --task <TASK>             Task: transcribe or translate [default: transcribe]
@@ -82,8 +82,11 @@ OPTIONS:
     -h, --help                    Print help information
 
 EXAMPLES:
-    # Transcribe a WAV file with greedy decoding
+    # Transcribe a WAV file with default model (checkpoints/whisper)
     cargo run --release --bin transcribe -- audio.wav
+
+    # Transcribe specifying custom model directory
+    cargo run --release --bin transcribe -- audio.wav --model-dir checkpoints/whisper
 
     # Transcribe with JSON output
     cargo run --release --bin transcribe -- audio.wav --format json
@@ -100,132 +103,175 @@ fn parse_args() -> Result<CliArgs> {
     let mut i = 0;
 
     while i < raw_args.len() {
-        match raw_args[i].as_str() {
-            "-h" | "--help" => {
-                print_help();
-                process::exit(0);
+        let arg = &raw_args[i];
+        if arg == "-h" || arg == "--help" {
+            print_help();
+            process::exit(0);
+        } else if arg == "-a" || arg == "--audio" {
+            i += 1;
+            if i >= raw_args.len() {
+                return Err(EngineError::InvalidArgument(
+                    "Missing argument for --audio".to_string(),
+                ));
             }
-            "-a" | "--audio" => {
-                i += 1;
-                if i >= raw_args.len() {
-                    return Err(EngineError::InvalidArgument(
-                        "Missing argument for --audio".to_string(),
-                    ));
-                }
-                args.audio_path = Some(PathBuf::from(&raw_args[i]));
+            args.audio_path = Some(PathBuf::from(&raw_args[i]));
+        } else if let Some(val) = arg.strip_prefix("--audio=") {
+            args.audio_path = Some(PathBuf::from(val));
+        } else if arg == "-m"
+            || arg == "--model-dir"
+            || arg == "--model_dir"
+            || arg == "--checkpoint-dir"
+            || arg == "-c"
+        {
+            i += 1;
+            if i >= raw_args.len() {
+                return Err(EngineError::InvalidArgument(
+                    "Missing argument for --model-dir".to_string(),
+                ));
             }
-            "-m" | "--model-dir" => {
-                i += 1;
-                if i >= raw_args.len() {
-                    return Err(EngineError::InvalidArgument(
-                        "Missing argument for --model-dir".to_string(),
-                    ));
-                }
-                args.model_dir = PathBuf::from(&raw_args[i]);
+            args.model_dir = PathBuf::from(&raw_args[i]);
+        } else if let Some(val) = arg
+            .strip_prefix("--model-dir=")
+            .or_else(|| arg.strip_prefix("--model_dir="))
+            .or_else(|| arg.strip_prefix("--checkpoint-dir="))
+            .or_else(|| arg.strip_prefix("-m="))
+            .or_else(|| arg.strip_prefix("-c="))
+        {
+            args.model_dir = PathBuf::from(val);
+        } else if arg == "-l" || arg == "--language" {
+            i += 1;
+            if i >= raw_args.len() {
+                return Err(EngineError::InvalidArgument(
+                    "Missing argument for --language".to_string(),
+                ));
             }
-            "-l" | "--language" => {
-                i += 1;
-                if i >= raw_args.len() {
-                    return Err(EngineError::InvalidArgument(
-                        "Missing argument for --language".to_string(),
-                    ));
-                }
-                args.language = raw_args[i].to_lowercase();
+            args.language = raw_args[i].to_lowercase();
+        } else if let Some(val) = arg
+            .strip_prefix("--language=")
+            .or_else(|| arg.strip_prefix("-l="))
+        {
+            args.language = val.to_lowercase();
+        } else if arg == "--task" {
+            i += 1;
+            if i >= raw_args.len() {
+                return Err(EngineError::InvalidArgument(
+                    "Missing argument for --task".to_string(),
+                ));
             }
-            "--task" => {
-                i += 1;
-                if i >= raw_args.len() {
-                    return Err(EngineError::InvalidArgument(
-                        "Missing argument for --task".to_string(),
-                    ));
-                }
-                args.task = raw_args[i].to_lowercase();
+            args.task = raw_args[i].to_lowercase();
+        } else if let Some(val) = arg.strip_prefix("--task=") {
+            args.task = val.to_lowercase();
+        } else if arg == "-n" || arg == "--max-tokens" {
+            i += 1;
+            if i >= raw_args.len() {
+                return Err(EngineError::InvalidArgument(
+                    "Missing argument for --max-tokens".to_string(),
+                ));
             }
-            "-n" | "--max-tokens" => {
-                i += 1;
-                if i >= raw_args.len() {
-                    return Err(EngineError::InvalidArgument(
-                        "Missing argument for --max-tokens".to_string(),
-                    ));
-                }
-                args.max_tokens = raw_args[i]
+            args.max_tokens = raw_args[i]
+                .parse()
+                .map_err(|_| EngineError::InvalidArgument("Invalid max-tokens".to_string()))?;
+        } else if let Some(val) = arg
+            .strip_prefix("--max-tokens=")
+            .or_else(|| arg.strip_prefix("-n="))
+        {
+            args.max_tokens = val
+                .parse()
+                .map_err(|_| EngineError::InvalidArgument("Invalid max-tokens".to_string()))?;
+        } else if arg == "-t" || arg == "--temperature" {
+            i += 1;
+            if i >= raw_args.len() {
+                return Err(EngineError::InvalidArgument(
+                    "Missing argument for --temperature".to_string(),
+                ));
+            }
+            args.temperature = raw_args[i]
+                .parse()
+                .map_err(|_| EngineError::InvalidArgument("Invalid temperature".to_string()))?;
+        } else if let Some(val) = arg
+            .strip_prefix("--temperature=")
+            .or_else(|| arg.strip_prefix("-t="))
+        {
+            args.temperature = val
+                .parse()
+                .map_err(|_| EngineError::InvalidArgument("Invalid temperature".to_string()))?;
+        } else if arg == "--top-p" {
+            i += 1;
+            if i >= raw_args.len() {
+                return Err(EngineError::InvalidArgument(
+                    "Missing argument for --top-p".to_string(),
+                ));
+            }
+            args.top_p = raw_args[i]
+                .parse()
+                .map_err(|_| EngineError::InvalidArgument("Invalid top-p".to_string()))?;
+        } else if let Some(val) = arg.strip_prefix("--top-p=") {
+            args.top_p = val
+                .parse()
+                .map_err(|_| EngineError::InvalidArgument("Invalid top-p".to_string()))?;
+        } else if arg == "--repetition-penalty" {
+            i += 1;
+            if i >= raw_args.len() {
+                return Err(EngineError::InvalidArgument(
+                    "Missing argument for --repetition-penalty".to_string(),
+                ));
+            }
+            args.repetition_penalty = raw_args[i].parse().map_err(|_| {
+                EngineError::InvalidArgument("Invalid repetition-penalty".to_string())
+            })?;
+        } else if let Some(val) = arg.strip_prefix("--repetition-penalty=") {
+            args.repetition_penalty = val.parse().map_err(|_| {
+                EngineError::InvalidArgument("Invalid repetition-penalty".to_string())
+            })?;
+        } else if arg == "-f" || arg == "--format" {
+            i += 1;
+            if i >= raw_args.len() {
+                return Err(EngineError::InvalidArgument(
+                    "Missing argument for --format".to_string(),
+                ));
+            }
+            args.format = raw_args[i].to_lowercase();
+        } else if let Some(val) = arg
+            .strip_prefix("--format=")
+            .or_else(|| arg.strip_prefix("-f="))
+        {
+            args.format = val.to_lowercase();
+        } else if arg == "--timestamps" {
+            args.timestamps = true;
+        } else if arg == "-s" || arg == "--seed" {
+            i += 1;
+            if i >= raw_args.len() {
+                return Err(EngineError::InvalidArgument(
+                    "Missing argument for --seed".to_string(),
+                ));
+            }
+            args.seed = Some(
+                raw_args[i]
                     .parse()
-                    .map_err(|_| EngineError::InvalidArgument("Invalid max-tokens".to_string()))?;
-            }
-            "-t" | "--temperature" => {
-                i += 1;
-                if i >= raw_args.len() {
-                    return Err(EngineError::InvalidArgument(
-                        "Missing argument for --temperature".to_string(),
-                    ));
-                }
-                args.temperature = raw_args[i]
-                    .parse()
-                    .map_err(|_| EngineError::InvalidArgument("Invalid temperature".to_string()))?;
-            }
-            "--top-p" => {
-                i += 1;
-                if i >= raw_args.len() {
-                    return Err(EngineError::InvalidArgument(
-                        "Missing argument for --top-p".to_string(),
-                    ));
-                }
-                args.top_p = raw_args[i]
-                    .parse()
-                    .map_err(|_| EngineError::InvalidArgument("Invalid top-p".to_string()))?;
-            }
-            "--repetition-penalty" => {
-                i += 1;
-                if i >= raw_args.len() {
-                    return Err(EngineError::InvalidArgument(
-                        "Missing argument for --repetition-penalty".to_string(),
-                    ));
-                }
-                args.repetition_penalty = raw_args[i].parse().map_err(|_| {
-                    EngineError::InvalidArgument("Invalid repetition-penalty".to_string())
-                })?;
-            }
-            "-f" | "--format" => {
-                i += 1;
-                if i >= raw_args.len() {
-                    return Err(EngineError::InvalidArgument(
-                        "Missing argument for --format".to_string(),
-                    ));
-                }
-                args.format = raw_args[i].to_lowercase();
-            }
-            "--timestamps" => {
-                args.timestamps = true;
-            }
-            "-s" | "--seed" => {
-                i += 1;
-                if i >= raw_args.len() {
-                    return Err(EngineError::InvalidArgument(
-                        "Missing argument for --seed".to_string(),
-                    ));
-                }
-                args.seed = Some(
-                    raw_args[i]
-                        .parse()
-                        .map_err(|_| EngineError::InvalidArgument("Invalid seed".to_string()))?,
-                );
-            }
-            arg if !arg.starts_with('-') => {
-                if args.audio_path.is_none() {
-                    args.audio_path = Some(PathBuf::from(arg));
-                } else {
-                    return Err(EngineError::InvalidArgument(format!(
-                        "Unexpected positional argument '{}'",
-                        arg
-                    )));
-                }
-            }
-            other => {
+                    .map_err(|_| EngineError::InvalidArgument("Invalid seed".to_string()))?,
+            );
+        } else if let Some(val) = arg
+            .strip_prefix("--seed=")
+            .or_else(|| arg.strip_prefix("-s="))
+        {
+            args.seed = Some(
+                val.parse()
+                    .map_err(|_| EngineError::InvalidArgument("Invalid seed".to_string()))?,
+            );
+        } else if !arg.starts_with('-') {
+            if args.audio_path.is_none() {
+                args.audio_path = Some(PathBuf::from(arg));
+            } else {
                 return Err(EngineError::InvalidArgument(format!(
-                    "Unknown option '{}'",
-                    other
+                    "Unexpected positional argument '{}'",
+                    arg
                 )));
             }
+        } else {
+            return Err(EngineError::InvalidArgument(format!(
+                "Unknown option '{}'",
+                arg
+            )));
         }
         i += 1;
     }
@@ -371,18 +417,28 @@ fn main() -> Result<()> {
         )));
     }
 
-    let model_weights_path = args.model_dir.join("model.safetensors");
-    let tokenizer_path = args.model_dir.join("tokenizer.json");
+    let (model_weights_path, tokenizer_path) = if args.model_dir.is_file() {
+        let parent = args
+            .model_dir
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
+        (args.model_dir.clone(), parent.join("tokenizer.json"))
+    } else {
+        (
+            args.model_dir.join("model.safetensors"),
+            args.model_dir.join("tokenizer.json"),
+        )
+    };
 
     if !model_weights_path.exists() {
         return Err(EngineError::InvalidArgument(format!(
-            "Whisper model weights not found at {:?}",
+            "Whisper model weights not found at {:?}. Use -m / --model-dir to specify checkpoint directory.",
             model_weights_path
         )));
     }
     if !tokenizer_path.exists() {
         return Err(EngineError::InvalidArgument(format!(
-            "Whisper tokenizer configuration not found at {:?}",
+            "Whisper tokenizer configuration not found at {:?}. Use -m / --model-dir to specify checkpoint directory.",
             tokenizer_path
         )));
     }
