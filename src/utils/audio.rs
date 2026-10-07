@@ -250,6 +250,358 @@ pub fn load_spoken_dataset(num_samples: Option<usize>) -> (RawTensor, Vec<String
     generate_spoken_dataset(n, 64, 32)
 }
 
+/// Decoded WAV audio container with normalized mono samples in range `[-1.0, 1.0]`.
+#[derive(Debug, Clone)]
+pub struct WavAudio {
+    /// Original audio sample rate in Hz (e.g. 16000, 44100, 48000).
+    pub sample_rate: u32,
+    /// Number of audio channels in the source file.
+    pub channels: u16,
+    /// Bit depth per sample (e.g. 8, 16, 24, 32).
+    pub bits_per_sample: u16,
+    /// Normalized audio waveform downmixed to mono (`f32` in `[-1.0, 1.0]`).
+    pub samples: Vec<f32>,
+}
+
+impl WavAudio {
+    /// Returns audio duration in seconds.
+    pub fn duration_seconds(&self) -> f32 {
+        if self.sample_rate == 0 {
+            0.0
+        } else {
+            self.samples.len() as f32 / self.sample_rate as f32
+        }
+    }
+
+    /// Resamples the internal audio buffer to a target sample rate (e.g. 16000 Hz) in-place.
+    pub fn resample(&mut self, target_sample_rate: u32) {
+        if self.sample_rate == target_sample_rate || self.samples.is_empty() {
+            return;
+        }
+        self.samples = resample_linear(&self.samples, self.sample_rate, target_sample_rate);
+        self.sample_rate = target_sample_rate;
+    }
+}
+
+/// Resamples a 1D audio waveform from `src_rate` to `target_rate` using linear interpolation.
+pub fn resample_linear(samples: &[f32], src_rate: u32, target_rate: u32) -> Vec<f32> {
+    if src_rate == target_rate || samples.is_empty() {
+        return samples.to_vec();
+    }
+
+    let ratio = src_rate as f64 / target_rate as f64;
+    let target_len = ((samples.len() as f64) / ratio).round() as usize;
+    let mut output = Vec::with_capacity(target_len);
+
+    for i in 0..target_len {
+        let src_idx = (i as f64) * ratio;
+        let idx0 = src_idx.floor() as usize;
+        let idx1 = (idx0 + 1).min(samples.len() - 1);
+        let frac = (src_idx - idx0 as f64) as f32;
+
+        if idx0 < samples.len() {
+            let s0 = samples[idx0];
+            let s1 = samples[idx1];
+            output.push(s0 + frac * (s1 - s0));
+        }
+    }
+
+    output
+}
+
+/// Reads a standard RIFF/WAVE audio file (.wav) without any external dependencies.
+/// Supports 8-bit unsigned PCM, 16-bit signed PCM, 24-bit signed PCM, 32-bit signed PCM,
+/// and 32-bit IEEE float. Automatically downmixes multi-channel audio to mono.
+pub fn read_wav_file<P: AsRef<std::path::Path>>(path: P) -> crate::error::Result<WavAudio> {
+    use crate::error::EngineError;
+    use std::fs::File;
+    use std::io::Read;
+
+    let path_ref = path.as_ref();
+    let mut file = File::open(path_ref).map_err(|e| {
+        EngineError::SerializationError(format!("Failed to open WAV file {:?}: {}", path_ref, e))
+    })?;
+
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(|e| {
+        EngineError::SerializationError(format!("Failed to read WAV file {:?}: {}", path_ref, e))
+    })?;
+
+    parse_wav_bytes(&bytes)
+}
+
+/// Parses raw bytes of a RIFF/WAVE container.
+pub fn parse_wav_bytes(bytes: &[u8]) -> crate::error::Result<WavAudio> {
+    use crate::error::EngineError;
+
+    if bytes.len() < 44 {
+        return Err(EngineError::SerializationError(
+            "WAV file is too small to contain valid RIFF headers".to_string(),
+        ));
+    }
+
+    // 1. Verify "RIFF" and "WAVE"
+    if &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return Err(EngineError::SerializationError(
+            "Invalid WAV file format: missing RIFF/WAVE signature".to_string(),
+        ));
+    }
+
+    let mut cursor = 12;
+    let mut audio_format: Option<u16> = None;
+    let mut channels: Option<u16> = None;
+    let mut sample_rate: Option<u32> = None;
+    let mut bits_per_sample: Option<u16> = None;
+    let mut data_chunk_range: Option<(usize, usize)> = None;
+
+    while cursor + 8 <= bytes.len() {
+        let chunk_id = &bytes[cursor..cursor + 4];
+        let chunk_size = u32::from_le_bytes([
+            bytes[cursor + 4],
+            bytes[cursor + 5],
+            bytes[cursor + 6],
+            bytes[cursor + 7],
+        ]) as usize;
+        cursor += 8;
+
+        if chunk_id == b"fmt " {
+            if chunk_size < 16 || cursor + 16 > bytes.len() {
+                return Err(EngineError::SerializationError(
+                    "Malformed 'fmt ' chunk in WAV header".to_string(),
+                ));
+            }
+            audio_format = Some(u16::from_le_bytes([bytes[cursor], bytes[cursor + 1]]));
+            channels = Some(u16::from_le_bytes([bytes[cursor + 2], bytes[cursor + 3]]));
+            sample_rate = Some(u32::from_le_bytes([
+                bytes[cursor + 4],
+                bytes[cursor + 5],
+                bytes[cursor + 6],
+                bytes[cursor + 7],
+            ]));
+            bits_per_sample = Some(u16::from_le_bytes([bytes[cursor + 14], bytes[cursor + 15]]));
+        } else if chunk_id == b"data" {
+            let data_end = (cursor + chunk_size).min(bytes.len());
+            data_chunk_range = Some((cursor, data_end));
+            break; // Standard primary data chunk found
+        }
+
+        // Advance to next chunk (chunks are 2-byte aligned in RIFF)
+        cursor += chunk_size;
+        if chunk_size % 2 != 0 {
+            cursor += 1;
+        }
+    }
+
+    let fmt = audio_format.ok_or_else(|| {
+        EngineError::SerializationError("Missing 'fmt ' chunk in WAV file".to_string())
+    })?;
+    let ch = channels.ok_or_else(|| {
+        EngineError::SerializationError("Missing channels in WAV file".to_string())
+    })?;
+    let sr = sample_rate.ok_or_else(|| {
+        EngineError::SerializationError("Missing sample rate in WAV file".to_string())
+    })?;
+    let bits = bits_per_sample.ok_or_else(|| {
+        EngineError::SerializationError("Missing bits per sample in WAV file".to_string())
+    })?;
+    let (data_start, data_end) = data_chunk_range.ok_or_else(|| {
+        EngineError::SerializationError("Missing 'data' chunk in WAV file".to_string())
+    })?;
+
+    if ch == 0 {
+        return Err(EngineError::SerializationError(
+            "Invalid channel count (0)".to_string(),
+        ));
+    }
+
+    let raw_data = &bytes[data_start..data_end];
+    let num_channels = ch as usize;
+
+    let samples: Vec<f32> = match (fmt, bits) {
+        // PCM 8-bit unsigned
+        (1, 8) => {
+            let total_samples = raw_data.len();
+            let num_frames = total_samples / num_channels;
+            let mut mono = Vec::with_capacity(num_frames);
+            for frame_idx in 0..num_frames {
+                let mut sum = 0.0f32;
+                for c in 0..num_channels {
+                    let b = raw_data[frame_idx * num_channels + c] as f32;
+                    sum += (b - 128.0) / 128.0;
+                }
+                mono.push(sum / (num_channels as f32));
+            }
+            mono
+        }
+        // PCM 16-bit signed
+        (1, 16) => {
+            let total_samples = raw_data.len() / 2;
+            let num_frames = total_samples / num_channels;
+            let mut mono = Vec::with_capacity(num_frames);
+            for frame_idx in 0..num_frames {
+                let mut sum = 0.0f32;
+                for c in 0..num_channels {
+                    let offset = (frame_idx * num_channels + c) * 2;
+                    if offset + 2 <= raw_data.len() {
+                        let sample_i16 =
+                            i16::from_le_bytes([raw_data[offset], raw_data[offset + 1]]) as f32;
+                        sum += sample_i16 / 32768.0;
+                    }
+                }
+                mono.push(sum / (num_channels as f32));
+            }
+            mono
+        }
+        // PCM 24-bit signed
+        (1, 24) => {
+            let total_samples = raw_data.len() / 3;
+            let num_frames = total_samples / num_channels;
+            let mut mono = Vec::with_capacity(num_frames);
+            for frame_idx in 0..num_frames {
+                let mut sum = 0.0f32;
+                for c in 0..num_channels {
+                    let offset = (frame_idx * num_channels + c) * 3;
+                    if offset + 3 <= raw_data.len() {
+                        let b0 = raw_data[offset] as u32;
+                        let b1 = raw_data[offset + 1] as u32;
+                        let b2 = raw_data[offset + 2] as u32;
+                        let raw_24 = b0 | (b1 << 8) | (b2 << 16);
+                        // Sign extend 24-bit to 32-bit
+                        let sample_i32 = if (raw_24 & 0x800000) != 0 {
+                            (raw_24 | 0xFF000000) as i32
+                        } else {
+                            raw_24 as i32
+                        } as f32;
+                        sum += sample_i32 / 8388608.0;
+                    }
+                }
+                mono.push(sum / (num_channels as f32));
+            }
+            mono
+        }
+        // PCM 32-bit signed
+        (1, 32) => {
+            let total_samples = raw_data.len() / 4;
+            let num_frames = total_samples / num_channels;
+            let mut mono = Vec::with_capacity(num_frames);
+            for frame_idx in 0..num_frames {
+                let mut sum = 0.0f32;
+                for c in 0..num_channels {
+                    let offset = (frame_idx * num_channels + c) * 4;
+                    if offset + 4 <= raw_data.len() {
+                        let sample_i32 = i32::from_le_bytes([
+                            raw_data[offset],
+                            raw_data[offset + 1],
+                            raw_data[offset + 2],
+                            raw_data[offset + 3],
+                        ]) as f32;
+                        sum += sample_i32 / 2147483648.0;
+                    }
+                }
+                mono.push(sum / (num_channels as f32));
+            }
+            mono
+        }
+        // IEEE Float 32-bit
+        (3, 32) => {
+            let total_samples = raw_data.len() / 4;
+            let num_frames = total_samples / num_channels;
+            let mut mono = Vec::with_capacity(num_frames);
+            for frame_idx in 0..num_frames {
+                let mut sum = 0.0f32;
+                for c in 0..num_channels {
+                    let offset = (frame_idx * num_channels + c) * 4;
+                    if offset + 4 <= raw_data.len() {
+                        let val = f32::from_le_bytes([
+                            raw_data[offset],
+                            raw_data[offset + 1],
+                            raw_data[offset + 2],
+                            raw_data[offset + 3],
+                        ]);
+                        sum += val;
+                    }
+                }
+                mono.push(sum / (num_channels as f32));
+            }
+            mono
+        }
+        (other_fmt, other_bits) => {
+            return Err(EngineError::SerializationError(format!(
+                "Unsupported WAV format: format_code={}, bits_per_sample={}",
+                other_fmt, other_bits
+            )));
+        }
+    };
+
+    Ok(WavAudio {
+        sample_rate: sr,
+        channels: ch,
+        bits_per_sample: bits,
+        samples,
+    })
+}
+
+/// Encodes normalized float samples (`[-1.0, 1.0]`) into a 16-bit PCM mono WAV file.
+pub fn write_wav_file<P: AsRef<std::path::Path>>(
+    path: P,
+    samples: &[f32],
+    sample_rate: u32,
+) -> crate::error::Result<()> {
+    use crate::error::EngineError;
+    use std::fs::File;
+    use std::io::Write;
+
+    let path_ref = path.as_ref();
+    let mut file = File::create(path_ref).map_err(|e| {
+        EngineError::SerializationError(format!("Failed to create WAV file {:?}: {}", path_ref, e))
+    })?;
+
+    let num_channels = 1u16;
+    let bits_per_sample = 16u16;
+    let bytes_per_sample = 2usize;
+    let data_len = samples.len() * bytes_per_sample;
+    let riff_chunk_size = (36 + data_len) as u32;
+
+    let mut header = Vec::with_capacity(44);
+    // RIFF Header
+    header.extend_from_slice(b"RIFF");
+    header.extend_from_slice(&riff_chunk_size.to_le_bytes());
+    header.extend_from_slice(b"WAVE");
+
+    // "fmt " Subchunk
+    header.extend_from_slice(b"fmt ");
+    header.extend_from_slice(&16u32.to_le_bytes()); // Subchunk1Size for PCM
+    header.extend_from_slice(&1u16.to_le_bytes()); // AudioFormat = 1 (PCM)
+    header.extend_from_slice(&num_channels.to_le_bytes());
+    header.extend_from_slice(&sample_rate.to_le_bytes());
+    let byte_rate = sample_rate * (num_channels as u32) * (bytes_per_sample as u32);
+    header.extend_from_slice(&byte_rate.to_le_bytes());
+    let block_align = num_channels * (bytes_per_sample as u16);
+    header.extend_from_slice(&block_align.to_le_bytes());
+    header.extend_from_slice(&bits_per_sample.to_le_bytes());
+
+    // "data" Subchunk
+    header.extend_from_slice(b"data");
+    header.extend_from_slice(&(data_len as u32).to_le_bytes());
+
+    file.write_all(&header).map_err(|e| {
+        EngineError::SerializationError(format!("Failed to write WAV header: {}", e))
+    })?;
+
+    // Write 16-bit PCM samples
+    let mut sample_bytes = Vec::with_capacity(data_len);
+    for &s in samples {
+        let clamped = s.clamp(-1.0, 1.0);
+        let val_i16 = (clamped * 32767.0).round() as i16;
+        sample_bytes.extend_from_slice(&val_i16.to_le_bytes());
+    }
+
+    file.write_all(&sample_bytes)
+        .map_err(|e| EngineError::SerializationError(format!("Failed to write WAV data: {}", e)))?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,5 +636,42 @@ mod tests {
         assert_eq!(labels.len(), 14);
         assert_eq!(labels[0], "zero");
         assert_eq!(labels[1], "one");
+    }
+
+    #[test]
+    fn test_wav_write_read_roundtrip() {
+        let sample_rate = 16000;
+        let mut original_samples = Vec::new();
+        for i in 0..1600 {
+            // 440 Hz sine wave
+            original_samples.push((2.0 * PI * 440.0 * (i as f32) / (sample_rate as f32)).sin());
+        }
+
+        let temp_path = std::env::temp_dir().join("nne_test_roundtrip.wav");
+        write_wav_file(&temp_path, &original_samples, sample_rate).unwrap();
+
+        let wav = read_wav_file(&temp_path).unwrap();
+        assert_eq!(wav.sample_rate, 16000);
+        assert_eq!(wav.channels, 1);
+        assert_eq!(wav.bits_per_sample, 16);
+        assert_eq!(wav.samples.len(), original_samples.len());
+
+        for (a, b) in original_samples.iter().zip(wav.samples.iter()) {
+            assert!((a - b).abs() < 0.001);
+        }
+
+        let _ = std::fs::remove_file(temp_path);
+    }
+
+    #[test]
+    fn test_resample_linear() {
+        let src_rate = 32000;
+        let target_rate = 16000;
+        let samples = vec![0.0, 0.5, 1.0, 0.5, 0.0, -0.5, -1.0, -0.5];
+
+        let resampled = resample_linear(&samples, src_rate, target_rate);
+        assert_eq!(resampled.len(), samples.len() / 2);
+        assert!((resampled[0] - 0.0).abs() < 1e-4);
+        assert!((resampled[1] - 1.0).abs() < 1e-4);
     }
 }

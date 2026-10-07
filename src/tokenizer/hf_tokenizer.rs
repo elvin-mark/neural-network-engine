@@ -337,6 +337,16 @@ impl HfTokenizer {
         self.sep_token_id
     }
 
+    /// Looks up a token ID by its exact string representation.
+    pub fn token_to_id(&self, token: &str) -> Option<usize> {
+        self.vocab.get(token).copied()
+    }
+
+    /// Looks up the token string for a given token ID.
+    pub fn id_to_token(&self, id: usize) -> Option<&str> {
+        self.id_to_token.get(id).map(|s| s.as_str())
+    }
+
     // --- Private BPE & WordPiece Algorithms ---
 
     fn encode_gpt2_bpe(&self, text: &str) -> Vec<usize> {

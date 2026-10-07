@@ -5,7 +5,8 @@ pub mod sampling;
 
 pub use audio::{
     compute_log_mel_spectrogram, create_mel_filterbank, generate_spoken_dataset, hz_to_mel,
-    load_spoken_dataset, mel_to_hz, synthesize_spoken_word, SPOKEN_CLASSES,
+    load_spoken_dataset, mel_to_hz, parse_wav_bytes, read_wav_file, resample_linear,
+    synthesize_spoken_word, write_wav_file, WavAudio, SPOKEN_CLASSES,
 };
 pub use data::{
     generate_cifar100_dataset, generate_cifar10_dataset, generate_digits_dataset,

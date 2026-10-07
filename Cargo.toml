@@ -131,4 +131,8 @@ path = "src/bin/similarity.rs"
 name = "qa"
 path = "src/bin/qa.rs"
 
+[[bin]]
+name = "transcribe"
+path = "src/bin/transcribe.rs"
+
 

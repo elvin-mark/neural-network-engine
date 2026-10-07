@@ -102,7 +102,54 @@ cargo run --release --bin qa -- --rag
 
 ---
 
+## 4. Speech-to-Text Transcription (`transcribe`)
+
+Autoregressive speech recognition transcription CLI powered by OpenAI Whisper (`openai/whisper-tiny`). Parses standard `.wav` files without external libraries, downmixes multi-channel stereo to mono, resamples to 16 kHz, computes 80-channel log-mel spectrograms, and decodes audio into text.
+
+```mermaid
+flowchart LR
+    WAV["WAV Audio (.wav)"] --> Parse["Zero-Dependency RIFF Parser"]
+    Parse --> Resample["Downmix to Mono & Resample to 16 kHz"]
+    Resample --> Mel["80-channel Log-Mel Spectrogram"]
+    Mel --> WhisperEnc["Whisper Encoder"]
+    WhisperEnc --> WhisperDec["Whisper Decoder (Autoregressive Generation)"]
+    WhisperDec --> Out["Transcribed Text / JSON / SRT"]
+```
+
+### Transcribe a WAV file
+```bash
+cargo run --release --bin transcribe -- audio.wav
+```
+
+### Transcribe with JSON Output & Repetition Penalty
+```bash
+cargo run --release --bin transcribe -- audio.wav \
+    --format json \
+    --temperature 0.0 \
+    --repetition-penalty 1.1
+```
+
+### CLI Arguments
+| Flag | Description | Default |
+|---|---|---|
+| `<AUDIO_FILE>` | Input `.wav` audio file (positional) | None |
+| `-a, --audio <PATH>` | Explicit flag to specify audio file path | None |
+| `-m, --model-dir <DIR>` | Directory containing Whisper weights and tokenizer | `"checkpoints/whisper"` |
+| `-l, --language <LANG>` | Target language code (`en`, `fr`, `de`, `es`, `zh`, etc.) | `"en"` |
+| `--task <TASK>` | Task mode (`transcribe` or `translate`) | `"transcribe"` |
+| `-n, --max-tokens <N>` | Maximum target text tokens to generate | `448` |
+| `-t, --temperature <F>` | Softmax temperature (`0.0` for deterministic greedy) | `0.0` |
+| `--top-p <F>` | Nucleus sampling probability threshold | `0.9` |
+| `--repetition-penalty <F>` | Multiplicative penalty for previously generated tokens | `1.1` |
+| `-f, --format <FMT>` | Output format (`txt`, `json`, `srt`) | `"txt"` |
+| `--timestamps` | Include segment timestamps in output | `false` |
+| `-s, --seed <N>` | Random seed for sampling | None |
+
+---
+
 ## See Also
 - [Pretrained Models Catalog](file:///home/elvin/Development/Repositories/elvin-mark/neural-network-engine/docs/models/README.md)
-- [BERT Architecture](file:///home/elvin/Development/Repositories/elvin-mark/neural-network-engine/docs/models/bert.md)
+- [Whisper Model Architecture](file:///home/elvin/Development/Repositories/elvin-mark/neural-network-engine/docs/models/whisper.md)
+- [Audio Processing Subsystem](file:///home/elvin/Development/Repositories/elvin-mark/neural-network-engine/docs/infra/audio.md)
 - [Tokenizers](file:///home/elvin/Development/Repositories/elvin-mark/neural-network-engine/docs/infra/tokenizers.md)
+
