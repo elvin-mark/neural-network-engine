@@ -93,8 +93,7 @@ impl MultiHeadAttention {
         let total_seq_len = k_all.shape()[2];
 
         // 4. Attention scores = Q * K^T / sqrt(D) -> [B, H, T, TotalSeqLen]
-        let k_t = k_all.transpose(2, 3)?;
-        let scores = q.matmul(&k_t)?;
+        let scores = q.matmul_transposed_b(&k_all)?;
         let scale = 1.0 / (d as f32).sqrt();
         let scale_tensor = Tensor::scalar(scale, false);
         let mut scaled_scores = scores.mul(&scale_tensor)?;
@@ -192,8 +191,7 @@ impl MultiHeadAttention {
         };
 
         // 3. Attention scores = Q * K^T / sqrt(D) -> [B, H, T_q, T_kv]
-        let k_t = k.transpose(2, 3)?;
-        let scores = q.matmul(&k_t)?;
+        let scores = q.matmul_transposed_b(&k)?;
         let scale = 1.0 / (d as f32).sqrt();
         let scale_tensor = Tensor::scalar(scale, false);
         let scaled_scores = scores.mul(&scale_tensor)?;

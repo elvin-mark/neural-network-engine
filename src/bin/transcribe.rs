@@ -446,6 +446,7 @@ fn main() -> Result<()> {
     }
 
     // 1. Read & Preprocess WAV Audio
+    let t_start = std::time::Instant::now();
     eprintln!("[*] Loading audio from {:?}...", audio_path);
     let mut wav = read_wav_file(&audio_path)?;
     let orig_sr = wav.sample_rate;
@@ -464,12 +465,16 @@ fn main() -> Result<()> {
         );
         wav.resample(16000);
     }
+    let t_audio = t_start.elapsed();
 
     // 2. Extract Acoustic Log-Mel Spectrogram
+    let t_mel_start = std::time::Instant::now();
     eprintln!("[*] Computing 80-channel Log-Mel Spectrogram...");
     let mel = prepare_whisper_mel(&wav)?;
+    let t_mel = t_mel_start.elapsed();
 
     // 3. Load Whisper Model & Tokenizer
+    let t_load_start = std::time::Instant::now();
     eprintln!(
         "[*] Loading Whisper model weights from {:?}...",
         model_weights_path
@@ -480,12 +485,16 @@ fn main() -> Result<()> {
 
     eprintln!("[*] Loading Whisper tokenizer from {:?}...", tokenizer_path);
     let tokenizer = HfTokenizer::from_file(&tokenizer_path)?;
+    let t_load = t_load_start.elapsed();
 
     // 4. Encode Audio Spectrogram
+    let t_enc_start = std::time::Instant::now();
     eprintln!("[*] Running Whisper Encoder...");
     let memory = model.encode(&mel)?;
+    let t_enc = t_enc_start.elapsed();
 
     // 5. Autoregressive Transcription with Key-Value Caching
+    let t_dec_start = std::time::Instant::now();
     let (prompt_tokens, eot_id) = get_prompt_token_ids(&tokenizer, &args.language, &args.task);
     let prompt_len = prompt_tokens.len();
     let mut generated = prompt_tokens.clone();
@@ -522,12 +531,14 @@ fn main() -> Result<()> {
         &mut rng,
     );
 
+    let mut num_gen_tokens = 0;
     for step in 0..args.max_tokens {
         if next_token == eot_id {
             break;
         }
 
         generated.push(next_token);
+        num_gen_tokens += 1;
 
         if step + 1 < args.max_tokens {
             let cur_pos = prompt_len + step;
@@ -550,6 +561,15 @@ fn main() -> Result<()> {
             );
         }
     }
+    let t_dec = t_dec_start.elapsed();
+    let t_total = t_start.elapsed();
+
+    eprintln!(
+        "[*] Profiling breakdown: audio: {:?}, mel: {:?}, load: {:?}, encoder: {:?}, decoder: {:?} ({} tokens, {:.2} ms/token), total: {:?}",
+        t_audio, t_mel, t_load, t_enc, t_dec, num_gen_tokens,
+        (t_dec.as_secs_f64() * 1000.0) / (num_gen_tokens.max(1) as f64),
+        t_total
+    );
 
     // 6. Decode Tokens to String
     let text_tokens = &generated[prompt_len..];

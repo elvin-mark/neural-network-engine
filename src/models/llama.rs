@@ -269,8 +269,7 @@ impl GroupedQueryAttention {
         };
 
         // 5. Attention scores: (Q * K^T) / sqrt(D) -> [B, H_q, T, TotalSeqLen]
-        let k_t = k_exp.transpose(2, 3)?;
-        let scores = q.matmul(&k_t)?;
+        let scores = q.matmul_transposed_b(&k_exp)?;
         let scale = 1.0 / (d as f32).sqrt();
         let mut scaled_scores = scores.mul_scalar(scale)?;
 

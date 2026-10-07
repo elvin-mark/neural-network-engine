@@ -4,6 +4,10 @@ use crate::autograd::Tensor;
 use crate::error::{EngineError, Result};
 use crate::nn::module::Module;
 use crate::tensor::RawTensor;
+use rayon::prelude::*;
+
+#[cfg(target_arch = "x86_64")]
+use std::arch::x86_64::*;
 
 /// Layer Normalization over the last dimension: y = (x - mean) / sqrt(var + eps) * gamma + beta.
 #[derive(Clone)]
@@ -45,6 +49,35 @@ impl Module for LayerNorm {
             });
         }
 
+        // Fast-path: Fused LayerNorm when autograd graph tracking is not required
+        if !crate::autograd::is_grad_enabled()
+            || (!input.requires_grad()
+                && !self.weight.requires_grad()
+                && !self.bias.requires_grad())
+        {
+            let in_raw = input.data().to_contiguous();
+            let in_slice = in_raw.as_slice();
+            let gamma = self.weight.data().to_contiguous();
+            let gamma_slice = gamma.as_slice();
+            let beta = self.bias.data().to_contiguous();
+            let beta_slice = beta.as_slice();
+
+            let d = self.normalized_dim;
+            let mut out_data = vec![0.0f32; in_slice.len()];
+
+            out_data
+                .par_chunks_mut(d)
+                .enumerate()
+                .for_each(|(row_idx, row_out)| {
+                    let row_in = &in_slice[row_idx * d..(row_idx + 1) * d];
+                    fused_layer_norm_row(row_in, gamma_slice, beta_slice, self.eps, row_out);
+                });
+
+            let out_raw = RawTensor::from_vec(out_data, shape);
+            return Ok(Tensor::new(out_raw, false));
+        }
+
+        // Standard graph-building autograd path during training
         let last_axis = input.ndim() - 1;
         let mean = input.mean(last_axis, true)?;
         let diff = input.sub(&mean)?;
@@ -102,6 +135,31 @@ impl Module for RMSNorm {
             });
         }
 
+        // Fast-path: Fused RMSNorm when autograd graph tracking is not required
+        if !crate::autograd::is_grad_enabled()
+            || (!input.requires_grad() && !self.weight.requires_grad())
+        {
+            let in_raw = input.data().to_contiguous();
+            let in_slice = in_raw.as_slice();
+            let gamma = self.weight.data().to_contiguous();
+            let gamma_slice = gamma.as_slice();
+
+            let d = self.normalized_dim;
+            let mut out_data = vec![0.0f32; in_slice.len()];
+
+            out_data
+                .par_chunks_mut(d)
+                .enumerate()
+                .for_each(|(row_idx, row_out)| {
+                    let row_in = &in_slice[row_idx * d..(row_idx + 1) * d];
+                    fused_rms_norm_row(row_in, gamma_slice, self.eps, row_out);
+                });
+
+            let out_raw = RawTensor::from_vec(out_data, shape);
+            return Ok(Tensor::new(out_raw, false));
+        }
+
+        // Standard graph-building autograd path during training
         let last_axis = input.ndim() - 1;
         let sq = input.powf(2.0)?;
         let mean_sq = sq.mean(last_axis, true)?;
@@ -346,5 +404,174 @@ impl Module for BatchNorm2d {
 
     fn eval(&mut self) {
         self.is_training = false;
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+unsafe fn hsum256(v: __m256) -> f32 {
+    let v_high = _mm256_extractf128_ps(v, 1);
+    let v_low = _mm256_castps256_ps128(v);
+    let sum128 = _mm_add_ps(v_low, v_high);
+    let shuf = _mm_movehl_ps(sum128, sum128);
+    let sum64 = _mm_add_ps(sum128, shuf);
+    let shuf2 = _mm_shuffle_ps(sum64, sum64, 1);
+    let sum32 = _mm_add_ss(sum64, shuf2);
+    _mm_cvtss_f32(sum32)
+}
+
+fn fused_layer_norm_row(x: &[f32], gamma: &[f32], beta: &[f32], eps: f32, out: &mut [f32]) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+            unsafe {
+                fused_layer_norm_row_avx2(x, gamma, beta, eps, out);
+            }
+            return;
+        }
+    }
+
+    let d = x.len();
+    let mean = x.iter().sum::<f32>() / (d as f32);
+    let var = x
+        .iter()
+        .map(|&v| {
+            let diff = v - mean;
+            diff * diff
+        })
+        .sum::<f32>()
+        / (d as f32);
+    let inv_std = 1.0 / (var + eps).sqrt();
+
+    for j in 0..d {
+        out[j] = (x[j] - mean) * inv_std * gamma[j] + beta[j];
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma")]
+unsafe fn fused_layer_norm_row_avx2(
+    x: &[f32],
+    gamma: &[f32],
+    beta: &[f32],
+    eps: f32,
+    out: &mut [f32],
+) {
+    let d = x.len();
+    let d_f32 = d as f32;
+    let x_ptr = x.as_ptr();
+
+    // 1. Mean
+    let mut acc_sum = _mm256_setzero_ps();
+    let mut i = 0;
+    while i + 8 <= d {
+        acc_sum = _mm256_add_ps(acc_sum, _mm256_loadu_ps(x_ptr.add(i)));
+        i += 8;
+    }
+    let mut sum = hsum256(acc_sum);
+    while i < d {
+        sum += *x_ptr.add(i);
+        i += 1;
+    }
+    let mean = sum / d_f32;
+    let v_mean = _mm256_set1_ps(mean);
+
+    // 2. Variance
+    let mut acc_var = _mm256_setzero_ps();
+    i = 0;
+    while i + 8 <= d {
+        let diff = _mm256_sub_ps(_mm256_loadu_ps(x_ptr.add(i)), v_mean);
+        acc_var = _mm256_fmadd_ps(diff, diff, acc_var);
+        i += 8;
+    }
+    let mut var_sum = hsum256(acc_var);
+    while i < d {
+        let diff = *x_ptr.add(i) - mean;
+        var_sum += diff * diff;
+        i += 1;
+    }
+    let var = var_sum / d_f32;
+    let inv_std = 1.0 / (var + eps).sqrt();
+    let v_inv_std = _mm256_set1_ps(inv_std);
+
+    // 3. Affine transform
+    let g_ptr = gamma.as_ptr();
+    let b_ptr = beta.as_ptr();
+    let o_ptr = out.as_mut_ptr();
+    i = 0;
+    while i + 8 <= d {
+        let vx = _mm256_loadu_ps(x_ptr.add(i));
+        let vg = _mm256_loadu_ps(g_ptr.add(i));
+        let vb = _mm256_loadu_ps(b_ptr.add(i));
+        let norm = _mm256_mul_ps(_mm256_sub_ps(vx, v_mean), v_inv_std);
+        let vy = _mm256_fmadd_ps(norm, vg, vb);
+        _mm256_storeu_ps(o_ptr.add(i), vy);
+        i += 8;
+    }
+    while i < d {
+        *o_ptr.add(i) = (*x_ptr.add(i) - mean) * inv_std * *g_ptr.add(i) + *b_ptr.add(i);
+        i += 1;
+    }
+}
+
+fn fused_rms_norm_row(x: &[f32], gamma: &[f32], eps: f32, out: &mut [f32]) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+            unsafe {
+                fused_rms_norm_row_avx2(x, gamma, eps, out);
+            }
+            return;
+        }
+    }
+
+    let d = x.len();
+    let mean_sq = x.iter().map(|&v| v * v).sum::<f32>() / (d as f32);
+    let rrms = 1.0 / (mean_sq + eps).sqrt();
+
+    for j in 0..d {
+        out[j] = x[j] * rrms * gamma[j];
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma")]
+unsafe fn fused_rms_norm_row_avx2(x: &[f32], gamma: &[f32], eps: f32, out: &mut [f32]) {
+    let d = x.len();
+    let d_f32 = d as f32;
+    let x_ptr = x.as_ptr();
+
+    // 1. Mean square
+    let mut acc_sq = _mm256_setzero_ps();
+    let mut i = 0;
+    while i + 8 <= d {
+        let vx = _mm256_loadu_ps(x_ptr.add(i));
+        acc_sq = _mm256_fmadd_ps(vx, vx, acc_sq);
+        i += 8;
+    }
+    let mut sum_sq = hsum256(acc_sq);
+    while i < d {
+        let v = *x_ptr.add(i);
+        sum_sq += v * v;
+        i += 1;
+    }
+    let mean_sq = sum_sq / d_f32;
+    let rrms = 1.0 / (mean_sq + eps).sqrt();
+    let v_rrms = _mm256_set1_ps(rrms);
+
+    // 2. Scale
+    let g_ptr = gamma.as_ptr();
+    let o_ptr = out.as_mut_ptr();
+    i = 0;
+    while i + 8 <= d {
+        let vx = _mm256_loadu_ps(x_ptr.add(i));
+        let vg = _mm256_loadu_ps(g_ptr.add(i));
+        let vy = _mm256_mul_ps(_mm256_mul_ps(vx, v_rrms), vg);
+        _mm256_storeu_ps(o_ptr.add(i), vy);
+        i += 8;
+    }
+    while i < d {
+        *o_ptr.add(i) = *x_ptr.add(i) * rrms * *g_ptr.add(i);
+        i += 1;
     }
 }

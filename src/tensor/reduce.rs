@@ -5,6 +5,9 @@ use crate::tensor::shape::{flat_to_multi_index, multi_index_to_offset, numel};
 use crate::tensor::RawTensor;
 use rayon::prelude::*;
 
+#[cfg(target_arch = "x86_64")]
+use std::arch::x86_64::*;
+
 impl RawTensor {
     /// Computes the sum of all elements in the tensor.
     pub fn sum_all(&self) -> f32 {
@@ -227,7 +230,47 @@ impl RawTensor {
     }
 
     /// Computes numerically stable softmax along a specified axis.
+    /// Fast-path: single-pass fused AVX2 kernel when reducing along the last dimension.
     pub fn softmax(&self, axis: usize) -> Result<RawTensor> {
+        let ndim = self.ndim();
+        if axis >= ndim {
+            return Err(EngineError::DimensionOutOfBounds { axis, ndim });
+        }
+
+        // Fused fast-path for the last dimension (common in Transformers, Attention, Classifiers)
+        if axis == ndim - 1 {
+            let shape = self.shape().to_vec();
+            let d = shape[axis];
+            if d == 0 {
+                return Ok(RawTensor::zeros(&shape));
+            }
+
+            let contig = self.to_contiguous();
+            let in_slice = contig.as_slice();
+            let mut out_data = vec![0.0f32; in_slice.len()];
+
+            out_data
+                .par_chunks_mut(d)
+                .enumerate()
+                .for_each(|(row_idx, row_out)| {
+                    let row_in = &in_slice[row_idx * d..(row_idx + 1) * d];
+                    let max_val = find_row_max(row_in);
+
+                    let mut sum_exp = 0.0f32;
+                    for j in 0..d {
+                        let e = (row_in[j] - max_val).exp();
+                        row_out[j] = e;
+                        sum_exp += e;
+                    }
+
+                    let inv_sum = if sum_exp > 0.0 { 1.0 / sum_exp } else { 0.0 };
+                    scale_row(row_out, inv_sum);
+                });
+
+            return Ok(RawTensor::from_vec(out_data, shape));
+        }
+
+        // Generic fallback for intermediate axes
         let max_val = self.max(axis, true)?;
         let shifted = self.sub(&max_val)?;
         let exp_shifted = shifted.exp()?;
@@ -239,5 +282,74 @@ impl RawTensor {
     pub fn log_softmax(&self, axis: usize) -> Result<RawTensor> {
         let lse = self.logsumexp(axis, true)?;
         self.sub(&lse)
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn find_row_max_avx2(row: &[f32]) -> f32 {
+    let mut max_vec = _mm256_set1_ps(f32::NEG_INFINITY);
+    let mut i = 0;
+    while i + 8 <= row.len() {
+        let v = _mm256_loadu_ps(row.as_ptr().add(i));
+        max_vec = _mm256_max_ps(max_vec, v);
+        i += 8;
+    }
+    let v_high = _mm256_extractf128_ps(max_vec, 1);
+    let v_low = _mm256_castps256_ps128(max_vec);
+    let m128 = _mm_max_ps(v_low, v_high);
+    let shuf = _mm_movehl_ps(m128, m128);
+    let m64 = _mm_max_ps(m128, shuf);
+    let shuf2 = _mm_shuffle_ps(m64, m64, 1);
+    let m32 = _mm_max_ss(m64, shuf2);
+    let mut max_scalar = _mm_cvtss_f32(m32);
+    while i < row.len() {
+        if row[i] > max_scalar {
+            max_scalar = row[i];
+        }
+        i += 1;
+    }
+    max_scalar
+}
+
+fn find_row_max(row: &[f32]) -> f32 {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            return unsafe { find_row_max_avx2(row) };
+        }
+    }
+    row.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn scale_row_avx2(row: &mut [f32], factor: f32) {
+    let vf = _mm256_set1_ps(factor);
+    let mut i = 0;
+    while i + 8 <= row.len() {
+        let ptr = row.as_mut_ptr().add(i);
+        let v = _mm256_loadu_ps(ptr);
+        _mm256_storeu_ps(ptr, _mm256_mul_ps(v, vf));
+        i += 8;
+    }
+    while i < row.len() {
+        row[i] *= factor;
+        i += 1;
+    }
+}
+
+fn scale_row(row: &mut [f32], factor: f32) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            unsafe {
+                scale_row_avx2(row, factor);
+            }
+            return;
+        }
+    }
+    for val in row.iter_mut() {
+        *val *= factor;
     }
 }

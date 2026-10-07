@@ -174,8 +174,7 @@ impl ModernBertAttention {
         let k = self.rope.apply(&k, 0)?;
 
         // 3. Bidirectional Scaled Dot-Product Attention: (Q @ K^T) / sqrt(HD)
-        let k_t = k.transpose(2, 3)?;
-        let scores = q.matmul(&k_t)?;
+        let scores = q.matmul_transposed_b(&k)?;
         let scale = 1.0 / (hd as f32).sqrt();
         let scaled_scores = scores.mul_scalar(scale)?;
 
