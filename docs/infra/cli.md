@@ -147,9 +147,83 @@ cargo run --release --bin transcribe -- audio.wav \
 
 ---
 
+## 5. OpenAI-Compatible HTTP Inference Server (`server`)
+
+A zero-dependency HTTP/1.1 REST inference server providing drop-in compatibility with official OpenAI SDKs, LangChain, OpenWebUI, and HTTP clients. Implemented in pure Rust using standard library networking (`std::net::TcpListener`) and an internal worker thread pool.
+
+```mermaid
+flowchart TD
+    Client["Client (curl / OpenAI SDK / Web UI)"] -->|"HTTP/1.1 TCP (port 8080)"| Server["std::net::TcpListener"]
+    Server --> Workers["Worker Thread Pool"]
+    Workers --> Router{"HTTP Request Router"}
+    Router -->|"/health"| Health["System Health & Uptime"]
+    Router -->|"/v1/models"| Models["Model Catalog (/v1/models)"]
+    Router -->|"/v1/completions"| Comp["Text Generation (GPT-2, TinyLlama)<br/>(supports SSE streaming)"]
+    Router -->|"/v1/chat/completions"| Chat["Chat Completions"]
+    Router -->|"/v1/embeddings"| Emb["Dense Embeddings (MiniLM, ModernBERT)"]
+    Router -->|"/v1/audio/transcriptions"| Audio["Speech-to-Text Transcription (Whisper)"]
+```
+
+### Start the Server
+```bash
+# Start on default 127.0.0.1:8080
+cargo run --release --bin server
+
+# Custom port with preloaded Whisper & MiniLM
+cargo run --release --bin server -- --port 8000 --preload whisper,minilm
+```
+
+### Endpoints
+
+| Endpoint | Method | Models | Description |
+|---|---|---|---|
+| `/health` | `GET` | — | System health, uptime, and model loaded status |
+| `/v1/models` | `GET` | All | Catalog of available and loaded models |
+| `/v1/completions` | `POST` | `gpt2`, `tinyllamas` | Text generation with temperature, top-p, and optional **SSE streaming** |
+| `/v1/chat/completions` | `POST` | `gpt2`, `tinyllamas` | Formatted chat completion |
+| `/v1/embeddings` | `POST` | `minilm`, `modernbert` | Dense embedding vectors for text strings |
+| `/v1/audio/transcriptions` | `POST` | `whisper` | Multipart audio file or JSON base64 transcription |
+
+### Example Invocations
+
+#### Text Generation (Streaming SSE)
+```bash
+curl -N http://127.0.0.1:8080/v1/completions \
+    -H "Content-Type: application/json" \
+    -d '{"model": "gpt2", "prompt": "The future of AI is", "stream": true}'
+```
+
+#### Dense Vector Embeddings
+```bash
+curl http://127.0.0.1:8080/v1/embeddings \
+    -H "Content-Type: application/json" \
+    -d '{"model": "minilm", "input": "High-performance Rust inference"}'
+```
+
+#### Speech-to-Text Transcription (Multipart WAV)
+```bash
+curl http://127.0.0.1:8080/v1/audio/transcriptions \
+    -F file=@audio.wav \
+    -F model=whisper
+```
+
+### CLI Arguments
+| Flag | Description | Default |
+|---|---|---|
+| `-h, --host <HOST>` | Host address to bind | `"127.0.0.1"` |
+| `-p, --port <PORT>` | Port number to listen on | `8080` |
+| `-t, --threads <N>` | Worker thread pool capacity | CPU cores |
+| `-c, --checkpoints-dir <DIR>` | Model weights directory | `"checkpoints"` |
+| `--preload <MODELS>` | Comma-separated list to eagerly load at startup (`"all"` or model names) | None |
+| `--api-key <KEY>` | Optional Bearer token required for API authentication | None |
+| `--no-cors` | Disable permissive CORS headers | `false` |
+
+---
+
 ## See Also
 - [Pretrained Models Catalog](file:///home/elvin/Development/Repositories/elvin-mark/neural-network-engine/docs/models/README.md)
 - [Whisper Model Architecture](file:///home/elvin/Development/Repositories/elvin-mark/neural-network-engine/docs/models/whisper.md)
+- [GPT-2 Architecture](file:///home/elvin/Development/Repositories/elvin-mark/neural-network-engine/docs/models/gpt2.md)
 - [Audio Processing Subsystem](file:///home/elvin/Development/Repositories/elvin-mark/neural-network-engine/docs/infra/audio.md)
 - [Tokenizers](file:///home/elvin/Development/Repositories/elvin-mark/neural-network-engine/docs/infra/tokenizers.md)
 
