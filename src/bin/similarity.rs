@@ -3,6 +3,7 @@
 //! Computes high-dimensional dense embeddings for sentences using BERT (e.g. all-MiniLM-L6-v2)
 //! or ModernBERT, and evaluates cosine similarity for semantic search and pairwise comparison.
 
+use neural_network_engine::autograd::NoGradGuard;
 use neural_network_engine::error::{EngineError, Result};
 use neural_network_engine::models::bert::{BertConfig, BertModel};
 use neural_network_engine::models::modern_bert::{ModernBertConfig, ModernBertModel};
@@ -512,6 +513,7 @@ fn run_interactive_repl(
 }
 
 fn main() -> Result<()> {
+    let _no_grad = NoGradGuard::new();
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {

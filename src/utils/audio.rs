@@ -252,36 +252,58 @@ pub fn compute_whisper_mel_spectrogram(audio: &[f32]) -> RawTensor {
         window.push(0.5 * (1.0 - (2.0 * PI * (n as f32) / (n_fft as f32)).cos()));
     }
 
-    // 4. Compute STFT power spectrogram
+    // 4. Precompute DFT twiddle tables: cos_table and sin_table of shape [201, 400]
+    let num_bins = n_fft / 2 + 1; // 201
+    let mut cos_table = vec![0.0f32; num_bins * n_fft];
+    let mut sin_table = vec![0.0f32; num_bins * n_fft];
+    for k in 0..num_bins {
+        let angle_step = -2.0 * PI * (k as f32) / (n_fft as f32);
+        let offset = k * n_fft;
+        for n in 0..n_fft {
+            let angle = angle_step * (n as f32);
+            cos_table[offset + n] = angle.cos();
+            sin_table[offset + n] = angle.sin();
+        }
+    }
+
+    // 5. Compute STFT power spectrogram
     let filterbank = create_whisper_mel_filterbank();
 
     let frame_mels: Vec<Vec<f32>> = (0..whisper_frames)
         .into_par_iter()
         .map(|frame_idx| {
             let start = frame_idx * hop_length;
-            let mut windowed = vec![0.0f32; n_fft];
+            let mut windowed = [0.0f32; 400];
             for i in 0..n_fft {
                 windowed[i] = audio_centered[start + i] * window[i];
             }
 
-            let spectrum = compute_frame_spectrum(&windowed, n_fft); // 201 bins
             let mut mels = vec![0.0f32; num_mel_bins];
-            for m in 0..num_mel_bins {
-                let mut energy = 0.0f32;
-                for bin in 0..201 {
-                    let p = spectrum[bin] * spectrum[bin];
-                    energy += p * filterbank[bin][m];
+            for (bin, filter_row) in filterbank.iter().enumerate().take(num_bins) {
+                let offset = bin * n_fft;
+                let mut real = 0.0f32;
+                let mut imag = 0.0f32;
+                for i in 0..n_fft {
+                    let w = windowed[i];
+                    real += w * cos_table[offset + i];
+                    imag += w * sin_table[offset + i];
                 }
-                mels[m] = energy.max(1e-10).log10();
+                let power = real * real + imag * imag;
+                for (m, &f_val) in filter_row.iter().enumerate().take(num_mel_bins) {
+                    mels[m] += power * f_val;
+                }
+            }
+            for val in &mut mels {
+                *val = val.max(1e-10).log10();
             }
             mels
         })
         .collect();
 
     let mut mel_out = vec![0.0f32; num_mel_bins * whisper_frames];
-    for frame_idx in 0..whisper_frames {
-        for m in 0..num_mel_bins {
-            mel_out[m * whisper_frames + frame_idx] = frame_mels[frame_idx][m];
+    for (frame_idx, f_mels) in frame_mels.iter().enumerate().take(whisper_frames) {
+        for (m, &val) in f_mels.iter().enumerate().take(num_mel_bins) {
+            mel_out[m * whisper_frames + frame_idx] = val;
         }
     }
 

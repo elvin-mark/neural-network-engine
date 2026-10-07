@@ -25,4 +25,4 @@ pub use modern_bert::{
 };
 pub use resnet::{BottleneckBlock, ResBlock, ResNet, ResidualBlock};
 pub use vit::{ViTConfig, VisionTransformer};
-pub use whisper::{Whisper, WhisperConfig, WhisperDecoder, WhisperEncoder};
+pub use whisper::{Whisper, WhisperConfig, WhisperDecoder, WhisperEncoder, WhisperKVCache};

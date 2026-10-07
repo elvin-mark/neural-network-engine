@@ -8,8 +8,9 @@
 //! - Autoregressive decoding with repetition penalty and optional sampling
 //! - Plain text, JSON, or SRT formatted output
 
+use neural_network_engine::autograd::NoGradGuard;
 use neural_network_engine::error::{EngineError, Result};
-use neural_network_engine::models::whisper::{Whisper, WhisperConfig};
+use neural_network_engine::models::whisper::{Whisper, WhisperConfig, WhisperKVCache};
 use neural_network_engine::tensor::RawTensor;
 use neural_network_engine::tokenizer::HfTokenizer;
 use neural_network_engine::utils::audio::{
@@ -402,6 +403,7 @@ fn get_prompt_token_ids(
 }
 
 fn main() -> Result<()> {
+    let _no_grad = NoGradGuard::new();
     let args = parse_args()?;
 
     let audio_path = args.audio_path.ok_or_else(|| {
@@ -483,7 +485,7 @@ fn main() -> Result<()> {
     eprintln!("[*] Running Whisper Encoder...");
     let memory = model.encode(&mel)?;
 
-    // 5. Autoregressive Transcription
+    // 5. Autoregressive Transcription with Key-Value Caching
     let (prompt_tokens, eot_id) = get_prompt_token_ids(&tokenizer, &args.language, &args.task);
     let prompt_len = prompt_tokens.len();
     let mut generated = prompt_tokens.clone();
@@ -498,33 +500,55 @@ fn main() -> Result<()> {
         args.task, args.language, args.max_tokens
     );
 
-    for _ in 0..args.max_tokens {
-        let cur_len = generated.len();
-        let tokens_raw = RawTensor::from_slice(
-            &generated.iter().map(|&t| t as f32).collect::<Vec<_>>(),
-            &[1, cur_len],
-        );
-        let tokens_tensor = Tensor::new(tokens_raw, false);
+    let mut kv_cache = WhisperKVCache::new(model.config.decoder_layers);
 
-        let logits = model.decode(&tokens_tensor, &memory)?;
-        let slice = logits.data().to_contiguous();
-        let num_classes = model.config.vocab_size;
-        let last_logits = &slice.as_slice()[(cur_len - 1) * num_classes..cur_len * num_classes];
+    // Prompt prefill
+    let prompt_raw = RawTensor::from_slice(
+        &prompt_tokens.iter().map(|&t| t as f32).collect::<Vec<_>>(),
+        &[1, prompt_len],
+    );
+    let prompt_tensor = Tensor::new(prompt_raw, false);
+    let logits = model.decode_cached(&prompt_tensor, &memory, 0, Some(&mut kv_cache))?;
+    let raw = logits.data().to_contiguous();
+    let num_classes = model.config.vocab_size;
+    let last_logits = &raw.as_slice()[(prompt_len - 1) * num_classes..prompt_len * num_classes];
 
-        let next_token = sample_next_token(
-            last_logits,
-            &generated[prompt_len..],
-            args.temperature,
-            args.top_p,
-            args.repetition_penalty,
-            &mut rng,
-        );
+    let mut next_token = sample_next_token(
+        last_logits,
+        &[],
+        args.temperature,
+        args.top_p,
+        args.repetition_penalty,
+        &mut rng,
+    );
 
+    for step in 0..args.max_tokens {
         if next_token == eot_id {
             break;
         }
 
         generated.push(next_token);
+
+        if step + 1 < args.max_tokens {
+            let cur_pos = prompt_len + step;
+            let token_raw = RawTensor::from_vec(vec![next_token as f32], vec![1, 1]);
+            let token_tensor = Tensor::new(token_raw, false);
+
+            let logits =
+                model.decode_cached(&token_tensor, &memory, cur_pos, Some(&mut kv_cache))?;
+            let raw = logits.data().to_contiguous();
+            let s = raw.as_slice();
+            let last_logits = &s[(s.len() - num_classes)..];
+
+            next_token = sample_next_token(
+                last_logits,
+                &generated[prompt_len..],
+                args.temperature,
+                args.top_p,
+                args.repetition_penalty,
+                &mut rng,
+            );
+        }
     }
 
     // 6. Decode Tokens to String

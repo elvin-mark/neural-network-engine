@@ -4,6 +4,7 @@
 //! Supports direct span extraction, sliding window evaluation, and dense passage retrieval (RAG)
 //! over chunked files and documents.
 
+use neural_network_engine::autograd::NoGradGuard;
 use neural_network_engine::error::{EngineError, Result};
 use neural_network_engine::models::bert::{BertConfig, BertForQuestionAnswering, BertModel};
 use neural_network_engine::tokenizer::HfTokenizer;
@@ -791,6 +792,7 @@ fn run_interactive_repl(
 }
 
 fn main() -> Result<()> {
+    let _no_grad = NoGradGuard::new();
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {

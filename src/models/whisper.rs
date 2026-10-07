@@ -152,14 +152,28 @@ impl WhisperDecoderBlock {
     }
 
     pub fn forward_block(&self, x: &Tensor, memory: &Tensor) -> Result<Tensor> {
+        self.forward_block_cached(x, memory, None, None)
+    }
+
+    pub fn forward_block_cached(
+        &self,
+        x: &Tensor,
+        memory: &Tensor,
+        self_cache: Option<&mut (Tensor, Tensor)>,
+        cross_cache: Option<&mut (Tensor, Tensor)>,
+    ) -> Result<Tensor> {
         // 1. Masked Causal Self-Attention with Pre-LayerNorm & Residual
         let norm_x = self.self_attn_ln.forward(x)?;
-        let h_self = self.self_attn.forward_attention(&norm_x)?;
+        let h_self = self
+            .self_attn
+            .forward_attention_cached(&norm_x, self_cache)?;
         let x = x.add(&h_self)?;
 
         // 2. Multi-Head Cross-Attention with Pre-LayerNorm & Residual
         let norm_x2 = self.cross_attn_ln.forward(&x)?;
-        let h_cross = self.cross_attn.forward_cross_attention(&norm_x2, memory)?;
+        let h_cross =
+            self.cross_attn
+                .forward_cross_attention_cached(&norm_x2, memory, cross_cache)?;
         let x = x.add(&h_cross)?;
 
         // 3. GELU MLP with Pre-LayerNorm & Residual
@@ -308,6 +322,33 @@ impl Module for WhisperEncoder {
     }
 }
 
+/// Key-Value cache for Whisper decoder self-attention and cross-attention.
+#[derive(Clone, Default)]
+pub struct WhisperKVCache {
+    pub self_attn: Vec<(Tensor, Tensor)>,
+    pub cross_attn: Vec<(Tensor, Tensor)>,
+}
+
+impl WhisperKVCache {
+    pub fn new(num_layers: usize) -> Self {
+        let dummy = Tensor::zeros(&[0], false);
+        Self {
+            self_attn: vec![(dummy.clone(), dummy.clone()); num_layers],
+            cross_attn: vec![(dummy.clone(), dummy); num_layers],
+        }
+    }
+
+    pub fn reset(&mut self) {
+        let dummy = Tensor::zeros(&[0], false);
+        for slot in &mut self.self_attn {
+            *slot = (dummy.clone(), dummy.clone());
+        }
+        for slot in &mut self.cross_attn {
+            *slot = (dummy.clone(), dummy.clone());
+        }
+    }
+}
+
 /// The Whisper Text Transformer Decoder.
 pub struct WhisperDecoder {
     pub token_embedding: Embedding,
@@ -347,6 +388,17 @@ impl WhisperDecoder {
 
     /// Decodes target token sequence [B, T_text] given encoder memory [B, T_enc, d_model].
     pub fn forward_decoder(&self, tokens: &Tensor, memory: &Tensor) -> Result<Tensor> {
+        self.forward_decoder_cached(tokens, memory, 0, None)
+    }
+
+    /// Decodes target token sequence [B, T_text] with optional KV caching and position offset.
+    pub fn forward_decoder_cached(
+        &self,
+        tokens: &Tensor,
+        memory: &Tensor,
+        start_pos: usize,
+        mut cache: Option<&mut WhisperKVCache>,
+    ) -> Result<Tensor> {
         let shape = tokens.shape();
         if shape.len() != 2 {
             return Err(EngineError::IncompatibleShapes {
@@ -360,13 +412,18 @@ impl WhisperDecoder {
         // 1. Token Embeddings -> [B, T_text, d_model]
         let tok_embeds = self.token_embedding.forward(tokens)?;
 
-        // 2. Positional Embeddings
-        let pos = self.pos_embed.slice(1, 0, t_text)?;
+        // 2. Positional Embeddings sliced at [start_pos..start_pos + t_text]
+        let pos = self.pos_embed.slice(1, start_pos, start_pos + t_text)?;
         let mut x = tok_embeds.add(&pos)?;
 
-        // 3. Cascade through Decoder Blocks with Cross-Attention
-        for block in &self.blocks {
-            x = block.forward_block(&x, memory)?;
+        // 3. Cascade through Decoder Blocks with Self & Cross-Attention
+        for (idx, block) in self.blocks.iter().enumerate() {
+            let (self_c, cross_c) = if let Some(ref mut c) = cache {
+                (Some(&mut c.self_attn[idx]), Some(&mut c.cross_attn[idx]))
+            } else {
+                (None, None)
+            };
+            x = block.forward_block_cached(&x, memory, self_c, cross_c)?;
         }
 
         // 4. Post LayerNorm & Projection Head -> [B, T_text, vocab_size]
@@ -427,6 +484,18 @@ impl Whisper {
         self.decoder.forward_decoder(tokens, memory)
     }
 
+    /// Decodes text tokens using pre-computed encoder memory representations and KV-cache.
+    pub fn decode_cached(
+        &self,
+        tokens: &Tensor,
+        memory: &Tensor,
+        start_pos: usize,
+        cache: Option<&mut WhisperKVCache>,
+    ) -> Result<Tensor> {
+        self.decoder
+            .forward_decoder_cached(tokens, memory, start_pos, cache)
+    }
+
     /// Autoregressively transcribes an audio spectrogram into text using greedy decoding.
     pub fn generate_transcription(
         &self,
@@ -440,19 +509,17 @@ impl Whisper {
         let eos_id = tokenizer.eos_token_id().unwrap_or(2);
 
         let mut token_ids = vec![bos_id];
+        let mut kv_cache = WhisperKVCache::new(self.config.decoder_layers);
 
-        for _ in 0..max_tokens {
-            let cur_len = token_ids.len();
-            let tokens_raw = RawTensor::from_vec(
-                token_ids.iter().map(|&t| t as f32).collect(),
-                vec![1, cur_len],
-            );
-            let tokens_tensor = Tensor::new(tokens_raw, false);
+        let init_raw = RawTensor::from_vec(vec![bos_id as f32], vec![1, 1]);
+        let init_tensor = Tensor::new(init_raw, false);
+        let mut logits = self.decode_cached(&init_tensor, &memory, 0, Some(&mut kv_cache))?;
 
-            let logits = self.decode(&tokens_tensor, &memory)?;
-            let slice = logits.data().to_contiguous();
+        for step in 0..max_tokens {
+            let raw = logits.data().to_contiguous();
+            let s = raw.as_slice();
             let num_classes = self.config.vocab_size;
-            let last_logits = &slice.as_slice()[(cur_len - 1) * num_classes..cur_len * num_classes];
+            let last_logits = &s[(s.len() - num_classes)..];
 
             // Greedy argmax selection
             let mut best_token = 0;
@@ -469,6 +536,10 @@ impl Whisper {
             }
 
             token_ids.push(best_token);
+
+            let next_raw = RawTensor::from_vec(vec![best_token as f32], vec![1, 1]);
+            let next_tensor = Tensor::new(next_raw, false);
+            logits = self.decode_cached(&next_tensor, &memory, step + 1, Some(&mut kv_cache))?;
         }
 
         // Decode generated tokens (skip initial BOS token)

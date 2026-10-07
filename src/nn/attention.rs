@@ -132,6 +132,17 @@ impl MultiHeadAttention {
     /// Computes multi-head cross-attention where queries come from `x` [B, T_q, C]
     /// and keys/values come from `memory` [B, T_kv, C].
     pub fn forward_cross_attention(&self, x: &Tensor, memory: &Tensor) -> Result<Tensor> {
+        self.forward_cross_attention_cached(x, memory, None)
+    }
+
+    /// Computes multi-head cross-attention with optional caching of projected K and V from `memory`.
+    /// When `cache` is Some, projected K and V are computed once from `memory` and reused across decoding steps.
+    pub fn forward_cross_attention_cached(
+        &self,
+        x: &Tensor,
+        memory: &Tensor,
+        cache: Option<&mut (Tensor, Tensor)>,
+    ) -> Result<Tensor> {
         let x_shape = x.shape();
         let mem_shape = memory.shape();
 
@@ -156,15 +167,29 @@ impl MultiHeadAttention {
         let h = self.num_heads;
         let d = self.head_dim;
 
-        // 1. Project Q from x, K and V from memory -> [B, T, C]
+        // 1. Project Q from x -> [B, H, T_q, D]
         let q = self.q_proj.forward(x)?;
-        let k = self.k_proj.forward(memory)?;
-        let v = self.v_proj.forward(memory)?;
-
-        // 2. Reshape & transpose: Q -> [B, H, T_q, D], K, V -> [B, H, T_kv, D]
         let q = q.reshape(&[b, t_q, h, d])?.transpose(1, 2)?;
-        let k = k.reshape(&[b, t_kv, h, d])?.transpose(1, 2)?;
-        let v = v.reshape(&[b, t_kv, h, d])?.transpose(1, 2)?;
+
+        // 2. Fetch or compute projected K, V from memory -> [B, H, T_kv, D]
+        let (k, v) = if let Some(kv_slot) = cache {
+            if kv_slot.0.numel() > 0 && kv_slot.1.numel() > 0 {
+                (kv_slot.0.clone(), kv_slot.1.clone())
+            } else {
+                let k_proj = self.k_proj.forward(memory)?;
+                let v_proj = self.v_proj.forward(memory)?;
+                let k_reshaped = k_proj.reshape(&[b, t_kv, h, d])?.transpose(1, 2)?;
+                let v_reshaped = v_proj.reshape(&[b, t_kv, h, d])?.transpose(1, 2)?;
+                *kv_slot = (k_reshaped.clone(), v_reshaped.clone());
+                (k_reshaped, v_reshaped)
+            }
+        } else {
+            let k_proj = self.k_proj.forward(memory)?;
+            let v_proj = self.v_proj.forward(memory)?;
+            let k_reshaped = k_proj.reshape(&[b, t_kv, h, d])?.transpose(1, 2)?;
+            let v_reshaped = v_proj.reshape(&[b, t_kv, h, d])?.transpose(1, 2)?;
+            (k_reshaped, v_reshaped)
+        };
 
         // 3. Attention scores = Q * K^T / sqrt(D) -> [B, H, T_q, T_kv]
         let k_t = k.transpose(2, 3)?;

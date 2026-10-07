@@ -3,6 +3,7 @@
 //! Supports autoregressive generation, interactive REPL, and extractive QA
 //! using converted checkpoints (GPT-2, TinyLlamas, Dynamic TinyBERT, Whisper).
 
+use neural_network_engine::autograd::NoGradGuard;
 use neural_network_engine::error::{EngineError, Result};
 use neural_network_engine::models::bert::{BertConfig, BertForQuestionAnswering, BertModel};
 use neural_network_engine::models::gpt2::{GPT2Config, GPT2Model};
@@ -674,6 +675,7 @@ fn run_whisper(args: CliArgs, checkpoint_dir: &Path) -> Result<()> {
 }
 
 fn main() -> Result<()> {
+    let _no_grad = NoGradGuard::new();
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
