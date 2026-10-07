@@ -1,17 +1,16 @@
-pub mod gradcheck;
-pub mod sampling;
+//! Multi-modal data handling, dataset loaders, and vision/audio preprocessing pipelines.
 
-// Backward-compatibility aliases for data modules now located in crate::data
-pub use crate::data::audio;
-pub use crate::data::dataset as data;
+pub mod audio;
+pub mod dataset;
+pub mod vision;
 
-pub use crate::data::audio::{
+pub use audio::{
     compute_log_mel_spectrogram, compute_whisper_mel_spectrogram, create_mel_filterbank,
     create_whisper_mel_filterbank, generate_spoken_dataset, hz_to_mel, load_spoken_dataset,
     mel_to_hz, parse_wav_bytes, read_wav_file, resample_linear, synthesize_spoken_word,
     write_wav_file, WavAudio, SPOKEN_CLASSES,
 };
-pub use crate::data::dataset::{
+pub use dataset::{
     generate_cifar100_dataset, generate_cifar10_dataset, generate_digits_dataset,
     generate_mnist_dataset, generate_qa_dataset, generate_semantic_similarity_dataset,
     generate_spiral_dataset, generate_tinystories_dataset, generate_xor_dataset,
@@ -20,5 +19,7 @@ pub use crate::data::dataset::{
     load_iris_from_csv, load_mnist_dataset, load_mnist_from_idx, load_tinystories_dataset,
     standardize, train_test_split, DataLoader, QASample, TensorDataset, CIFAR10_CLASSES,
 };
-pub use gradcheck::gradcheck;
-pub use sampling::sample_token;
+pub use vision::{
+    ColorJitter, Compose, Normalize, RandomCrop, RandomHorizontalFlip, RandomRotation90,
+    RandomVerticalFlip, Transform,
+};

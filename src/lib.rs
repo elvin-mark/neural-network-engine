@@ -19,6 +19,7 @@
 //! - Numerical finite-difference gradient verification (`gradcheck`)
 
 pub mod autograd;
+pub mod data;
 pub mod error;
 #[cfg(feature = "gpu")]
 pub mod gpu;
@@ -31,18 +32,23 @@ pub mod python;
 pub mod tensor;
 pub mod tokenizer;
 pub mod utils;
-pub mod vision;
+
+// Backward compatibility alias: crate::vision maps to crate::data::vision
+pub use data::vision;
 
 pub use autograd::{is_grad_enabled, no_grad, set_grad_enabled, NoGradGuard, Tensor};
+pub use data::audio;
+pub use data::dataset;
+pub use data::vision::{
+    ColorJitter, Compose, Normalize, RandomCrop, RandomHorizontalFlip, RandomRotation90,
+    RandomVerticalFlip, Transform,
+};
 pub use error::{EngineError, Result};
 #[cfg(feature = "gpu")]
 pub use gpu::{GpuContext, GpuLayerNorm, GpuLinear, GpuRMSNorm, GpuTensor, ToGpu};
 pub use tensor::{PoolStats, RawTensor, TensorPool};
 pub use tokenizer::{ByteLevelBPE, HfTokenizer, TokenizerKind};
-pub use vision::{
-    ColorJitter, Compose, Normalize, RandomCrop, RandomHorizontalFlip, RandomRotation90,
-    RandomVerticalFlip, Transform,
-};
+
 
 /// Commonly used imports grouped for convenience.
 pub mod prelude {

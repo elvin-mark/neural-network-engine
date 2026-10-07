@@ -21,7 +21,9 @@ const BLOCK_M: usize = 96; // Multiple of 6
 const BLOCK_K: usize = 256;
 const BLOCK_N: usize = 256; // Multiple of 16
 
+#[cfg(target_arch = "x86_64")]
 const MR: usize = 6;
+#[cfg(target_arch = "x86_64")]
 const NR: usize = 16;
 
 /// Performs 2D matrix multiplication C = A * B on contiguous row-major slices.
