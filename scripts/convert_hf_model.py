@@ -688,9 +688,62 @@ def convert_modern_bert(model_id: str, output_dir: Path):
     print(f"[✓] Model '{model_id}' successfully converted to {output_dir}")
 
 
+def convert_qwen3_5(model_id: str, output_dir: Path):
+    from transformers import Qwen3_5ForCausalLM
+
+    print(f"[*] Loading Hugging Face Qwen3.5 model '{model_id}'...")
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    model = Qwen3_5ForCausalLM.from_pretrained(model_id, dtype=torch.float32)
+    model.eval()
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print("[*] Transforming state_dict for neural-network-engine...")
+    transformed_weights = {}
+    sd = model.state_dict()
+    for key, tensor in sd.items():
+        if key.startswith("model."):
+            clean_key = key[len("model."):]
+        else:
+            clean_key = key
+        transformed_weights[clean_key] = tensor.detach().to(torch.float32).clone().contiguous()
+
+    # Ensure lm_head.weight is present even when tied
+    if "lm_head.weight" not in transformed_weights and "embed_tokens.weight" in transformed_weights:
+        transformed_weights["lm_head.weight"] = transformed_weights["embed_tokens.weight"].clone()
+
+    weights_path = output_dir / "model.safetensors"
+    print(f"[*] Saving SafeTensors weights to {weights_path}...")
+    save_file(transformed_weights, str(weights_path))
+
+    print("[*] Saving tokenizer configuration...")
+    tokenizer.save_pretrained(str(output_dir))
+
+    prompt = "The capital of France is"
+    input_ids = tokenizer(prompt, return_tensors="pt").input_ids
+    with torch.no_grad():
+        gen_ids = model.generate(input_ids, max_new_tokens=5, do_sample=False)[0].tolist()
+    gen_text = tokenizer.decode(gen_ids)
+    print(f"[*] Reference Prompt: {repr(prompt)}")
+    print(f"[*] Reference Generated IDs: {gen_ids}")
+    print(f"[*] Reference Output Text: {repr(gen_text)}")
+
+    reference_meta = {
+        "model_id": model_id,
+        "prompt": prompt,
+        "input_ids": input_ids[0].tolist(),
+        "generated_ids": gen_ids,
+        "generated_text": gen_text,
+    }
+    with open(output_dir / "reference.json", "w") as f:
+        json.dump(reference_meta, f, indent=2)
+
+    print(f"[✓] Model '{model_id}' successfully converted to {output_dir}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Convert Hugging Face models to neural-network-engine format.")
-    parser.add_argument("--model", type=str, default="gpt2", choices=["gpt2", "tinyllamas", "minilm", "tinybert", "whisper", "vit", "modern_bert"], help="Model architecture")
+    parser.add_argument("--model", type=str, default="gpt2", choices=["gpt2", "tinyllamas", "minilm", "tinybert", "whisper", "vit", "modern_bert", "qwen3.5"], help="Model architecture")
     parser.add_argument("--output-dir", type=str, default=None, help="Destination output directory")
     args = parser.parse_args()
 
@@ -712,6 +765,8 @@ def main():
         convert_vit("timm/vit_tiny_patch16_224.augreg_in21k_ft_in1k", output_dir)
     elif args.model == "modern_bert":
         convert_modern_bert("answerdotai/ModernBERT-base", output_dir)
+    elif args.model == "qwen3.5":
+        convert_qwen3_5("Qwen/Qwen3.5-0.8B", output_dir)
 
 
 if __name__ == "__main__":

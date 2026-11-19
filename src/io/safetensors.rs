@@ -65,33 +65,56 @@ pub fn load_safetensors<P: AsRef<Path>>(path: P) -> Result<HashMap<String, RawTe
 
     let mut result = HashMap::new();
     for (name, view) in st.tensors() {
-        if view.dtype() != Dtype::F32 {
-            return Err(EngineError::SerializationError(format!(
-                "Unsupported SafeTensors dtype {:?} for tensor '{}'. Only F32 is currently supported.",
-                view.dtype(),
-                name
-            )));
-        }
-
         let shape = view.shape().to_vec();
         let data_bytes = view.data();
         let expected_elements: usize = shape.iter().product();
-        if data_bytes.len() != expected_elements * 4 {
+
+        let elem_size = match view.dtype() {
+            Dtype::F32 => 4,
+            Dtype::BF16 | Dtype::F16 => 2,
+            other => {
+                return Err(EngineError::SerializationError(format!(
+                    "Unsupported SafeTensors dtype {:?} for tensor '{}'. Supported dtypes: F32, BF16, F16.",
+                    other, name
+                )));
+            }
+        };
+
+        if data_bytes.len() != expected_elements * elem_size {
             return Err(EngineError::SerializationError(format!(
                 "Byte length mismatch for tensor '{}': expected {} bytes for shape {:?}, found {} bytes",
                 name,
-                expected_elements * 4,
+                expected_elements * elem_size,
                 shape,
                 data_bytes.len()
             )));
         }
 
         let mut float_data = Vec::with_capacity(expected_elements);
-        for chunk in data_bytes.chunks_exact(4) {
-            let bytes: [u8; 4] = chunk.try_into().map_err(|_| {
-                EngineError::SerializationError("Failed to convert 4 bytes to f32".to_string())
-            })?;
-            float_data.push(f32::from_le_bytes(bytes));
+        match view.dtype() {
+            Dtype::F32 => {
+                for chunk in data_bytes.chunks_exact(4) {
+                    let bytes: [u8; 4] = chunk.try_into().map_err(|_| {
+                        EngineError::SerializationError(
+                            "Failed to convert 4 bytes to f32".to_string(),
+                        )
+                    })?;
+                    float_data.push(f32::from_le_bytes(bytes));
+                }
+            }
+            Dtype::BF16 => {
+                for chunk in data_bytes.chunks_exact(2) {
+                    let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
+                    float_data.push(f32::from_bits((bits as u32) << 16));
+                }
+            }
+            Dtype::F16 => {
+                for chunk in data_bytes.chunks_exact(2) {
+                    let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
+                    float_data.push(f16_to_f32(bits));
+                }
+            }
+            _ => unreachable!(),
         }
 
         let tensor = RawTensor::from_vec(float_data, shape);
@@ -99,4 +122,32 @@ pub fn load_safetensors<P: AsRef<Path>>(path: P) -> Result<HashMap<String, RawTe
     }
 
     Ok(result)
+}
+
+/// Converts an IEEE 754 binary16 (f16) bit pattern to `f32`.
+fn f16_to_f32(bits: u16) -> f32 {
+    let sign = ((bits & 0x8000) as u32) << 16;
+    let exp = ((bits & 0x7C00) >> 10) as u32;
+    let frac = (bits & 0x03FF) as u32;
+
+    if exp == 0 {
+        if frac == 0 {
+            f32::from_bits(sign)
+        } else {
+            // Subnormal
+            let mut f = frac;
+            let mut e = 127 - 14;
+            while (f & 0x0400) == 0 {
+                f <<= 1;
+                e -= 1;
+            }
+            f &= 0x03FF;
+            f32::from_bits(sign | (e << 23) | (f << 13))
+        }
+    } else if exp == 0x1F {
+        // Inf or NaN
+        f32::from_bits(sign | 0x7F80_0000 | (frac << 13))
+    } else {
+        f32::from_bits(sign | ((exp + (127 - 15)) << 23) | (frac << 13))
+    }
 }
