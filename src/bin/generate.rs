@@ -7,6 +7,7 @@ use neural_network_engine::autograd::NoGradGuard;
 use neural_network_engine::error::{EngineError, Result};
 use neural_network_engine::models::bert::{BertConfig, BertForQuestionAnswering, BertModel};
 use neural_network_engine::models::gpt2::{GPT2Config, GPT2Model};
+use neural_network_engine::models::lfm3::{Lfm3Config, Lfm3Model};
 use neural_network_engine::models::llama::{Llama2LM, LlamaConfig};
 use neural_network_engine::models::qwen3_5::{Qwen3_5Config, Qwen3_5Model};
 use neural_network_engine::models::whisper::{Whisper, WhisperConfig};
@@ -55,7 +56,7 @@ USAGE:
 
 OPTIONS:
     -m, --model <MODEL>           Model architecture to run:
-                                  gpt2, tinyllamas, tinybert, minilm, whisper, qwen3.5
+                                  gpt2, tinyllamas, tinybert, minilm, whisper, qwen3.5, lfm3
                                   [default: gpt2]
     -c, --checkpoint-dir <DIR>    Path to checkpoint directory containing model.safetensors
                                   and tokenizer.json [default: checkpoints/<model>]
@@ -312,6 +313,121 @@ fn run_gpt2(args: CliArgs, checkpoint_dir: &Path) -> Result<()> {
                 },
             )?;
             println!("\n");
+        }
+    }
+
+    Ok(())
+}
+
+fn run_lfm3(args: CliArgs, checkpoint_dir: &Path) -> Result<()> {
+    let model_path = checkpoint_dir.join("model.safetensors");
+    let tokenizer_path = checkpoint_dir.join("tokenizer.json");
+
+    if !model_path.exists() {
+        return Err(EngineError::InvalidArgument(format!(
+            "Model file not found at {:?}",
+            model_path
+        )));
+    }
+    if !tokenizer_path.exists() {
+        return Err(EngineError::InvalidArgument(format!(
+            "Tokenizer file not found at {:?}",
+            tokenizer_path
+        )));
+    }
+
+    eprintln!("Loading LFM3 tokenizer from {:?}...", tokenizer_path);
+    let tokenizer = HfTokenizer::from_file(&tokenizer_path)?;
+
+    eprintln!("Loading LFM3-1.7B weights from {:?}...", model_path);
+    let config = Lfm3Config::lfm3_1_7b();
+    let eos_id = tokenizer.eos_token_id().unwrap_or(config.eos_token_id);
+    let mut model = Lfm3Model::new(config);
+    model.load_safetensors(&model_path)?;
+    eprintln!("Model loaded successfully!\n");
+
+    let mut rng = create_rng(args.seed);
+
+    if let Some(prompt) = args.prompt {
+        let prompt_tokens = tokenizer.encode(&prompt);
+        if prompt_tokens.is_empty() {
+            return Err(EngineError::InvalidArgument("Prompt is empty".to_string()));
+        }
+
+        print!("{}", prompt);
+        io::stdout().flush()?;
+
+        model.generate_stream(
+            &tokenizer,
+            &prompt_tokens,
+            args.max_tokens,
+            args.temperature,
+            args.top_k,
+            args.top_p,
+            Some(eos_id),
+            &mut rng,
+            |_id, piece| {
+                print!("{}", piece);
+                io::stdout().flush()?;
+                Ok(true)
+            },
+        )?;
+        println!();
+    } else {
+        println!("==============================================================");
+        println!("Neural Network Engine - Interactive REPL (LFM3-1.7B)");
+        println!(
+            "Config: temp={}, top-k={:?}, top-p={:?}, max-tokens={}",
+            args.temperature, args.top_k, args.top_p, args.max_tokens
+        );
+        println!("Type '/quit' or '/exit' to exit.");
+        println!("==============================================================\n");
+
+        let stdin = io::stdin();
+        let mut reader = stdin.lock();
+
+        loop {
+            print!(">>> ");
+            io::stdout().flush()?;
+
+            let mut line = String::new();
+            if reader.read_line(&mut line)? == 0 {
+                break;
+            }
+
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if trimmed == "/quit" || trimmed == "/exit" {
+                println!("Goodbye!");
+                break;
+            }
+
+            let prompt_tokens = tokenizer.encode(trimmed);
+            if prompt_tokens.is_empty() {
+                continue;
+            }
+
+            print!("{}", trimmed);
+            io::stdout().flush()?;
+
+            model.generate_stream(
+                &tokenizer,
+                &prompt_tokens,
+                args.max_tokens,
+                args.temperature,
+                args.top_k,
+                args.top_p,
+                Some(eos_id),
+                &mut rng,
+                |_id, piece| {
+                    print!("{}", piece);
+                    io::stdout().flush()?;
+                    Ok(true)
+                },
+            )?;
+            println!();
         }
     }
 
@@ -818,9 +934,10 @@ fn main() -> Result<()> {
         "minilm" | "bert" => run_minilm(args, &checkpoint_dir)?,
         "whisper" => run_whisper(args, &checkpoint_dir)?,
         "qwen3.5" | "qwen3_5" => run_qwen3_5(args, &checkpoint_dir)?,
+        "lfm3" | "lfm3-1.7b" => run_lfm3(args, &checkpoint_dir)?,
         unknown => {
             eprintln!(
-                "Error: Unknown model '{}'. Supported models: gpt2, tinyllamas, tinybert, minilm, whisper, qwen3.5",
+                "Error: Unknown model '{}'. Supported models: gpt2, tinyllamas, tinybert, minilm, whisper, qwen3.5, lfm3",
                 unknown
             );
             std::process::exit(1);

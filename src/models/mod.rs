@@ -5,6 +5,7 @@
 
 pub mod bert;
 pub mod gpt2;
+pub mod lfm3;
 pub mod llama;
 pub mod modern_bert;
 pub mod qwen3_5;
@@ -17,6 +18,10 @@ pub use bert::{
     BertLayer, BertModel, BertPooler,
 };
 pub use gpt2::{GPT2Block, GPT2Config, GPT2Model};
+pub use lfm3::{
+    Lfm3Attention, Lfm3Cache, Lfm3Config, Lfm3DecoderLayer, Lfm3LayerCache, Lfm3LayerType, Lfm3MLP,
+    Lfm3Model, Lfm3ShortConv, Lfm3TokenMixer,
+};
 pub use llama::{
     GroupedQueryAttention, Llama2Block, Llama2LM, LlamaConfig, RotaryEmbedding, SwiGLU,
 };

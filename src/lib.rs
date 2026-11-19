@@ -49,7 +49,6 @@ pub use gpu::{GpuContext, GpuLayerNorm, GpuLinear, GpuRMSNorm, GpuTensor, ToGpu}
 pub use tensor::{PoolStats, RawTensor, TensorPool};
 pub use tokenizer::{ByteLevelBPE, HfTokenizer, TokenizerKind};
 
-
 /// Commonly used imports grouped for convenience.
 pub mod prelude {
     pub use crate::autograd::{is_grad_enabled, no_grad, set_grad_enabled, NoGradGuard, Tensor};
